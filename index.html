@@ -187,19 +187,35 @@
   <!-- App JS + Firebase (module) -->
   <script type="module">
     // ---------- Firebase imports ----------
-    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
+
     import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInAnonymously, signOut } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
     import { getFirestore, doc, getDoc, setDoc, collection, getDocs } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
     // ---------- Firebase config (REMPLACE ces valeurs par celles de ton projet) ----------
-    const firebaseConfig = {
-      apiKey: "__API_KEY__",
-      authDomain: "__PROJECT_ID__.firebaseapp.com",
-      projectId: "__PROJECT_ID__",
-      storageBucket: "__PROJECT_ID__.appspot.com",
-      messagingSenderId: "__SENDER_ID__",
-      appId: "__APP_ID__"
-    };
+  // Your web app's Firebase configuration
+
+  const firebaseConfig = {
+
+    apiKey: "AIzaSyD4f5nOJUv_DhFSuRsYxCIxsU8lEmHKb_U",
+
+    authDomain: "budget-app-71fa3.firebaseapp.com",
+
+    projectId: "budget-app-71fa3",
+
+    storageBucket: "budget-app-71fa3.firebasestorage.app",
+
+    messagingSenderId: "626176730343",
+
+    appId: "1:626176730343:web:233508ab9c71ff16596e42"
+
+  };
+
+
+  // Initialize Firebase
+
+  const app = initializeApp(firebaseConfig);
+
 
     // ---------- App State ----------
     const SAVINGS_GOAL = 1400;
