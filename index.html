@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gestion de Budget – Firebase Sync</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+    .card { background-color: white; border-radius: 0.75rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); transition: all 0.3s ease; }
+    .card:hover { box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1); }
+    .btn { display:inline-flex; align-items:center; justify-content:center; padding:0.5rem 1rem; border-radius:0.5rem; font-weight:500; transition:all .2s; cursor:pointer; }
+    .btn-primary { background-color:#4f46e5; color:white; }
+    .btn-primary:hover { background-color:#4338ca; }
+    .btn-secondary { background-color:#e5e7eb; color:#1f2937; }
+    .btn-secondary:hover { background-color:#d1d5db; }
+    input, select { border-radius:0.5rem; border:1px solid #d1d5db; padding:0.5rem 0.75rem; width:100%; }
+    .progress-bar { background-color:#e5e7eb; border-radius:9999px; overflow:hidden; height:1.25rem; }
+    .progress-bar-fill { background-color:#22c55e; height:100%; transition:width .5s ease-in-out; }
+    .category-pill { padding:0.5rem 0.75rem; border:1px solid #d1d5db; border-radius:9999px; cursor:pointer; transition:all .2s; font-size:.875rem; }
+    .category-pill:hover { background-color:#f3f4f6; }
+    .category-pill.selected { background-color:#4f46e5; color:white; border-color:#4f46e5; }
+    ::-webkit-scrollbar{ width:8px; } ::-webkit-scrollbar-track{ background:#f1f5f9; } ::-webkit-scrollbar-thumb{ background:#cbd5e1; border-radius:10px; } ::-webkit-scrollbar-thumb:hover{ background:#94a3b8; }
+    dialog::backdrop { background: rgb(15 23 42 / .45); }
+  </style>
+</head>
+<body class="p-4 md:p-8">
+  <div class="max-w-7xl mx-auto">
+    <header class="text-center mb-8">
+      <h1 class="text-4xl font-bold text-gray-800">Mon Suivi Budgétaire</h1>
+      <p class="text-lg text-gray-500 mt-2">Reprenez le contrôle de vos finances et atteignez vos objectifs.</p>
+
+      <!-- Auth bar -->
+      <div class="mt-6 flex flex-wrap items-center justify-center gap-3">
+        <span id="auth-status" class="text-sm text-gray-600">Non connecté</span>
+        <button id="btn-google" class="btn btn-secondary">Se connecter avec Google</button>
+        <button id="btn-anon" class="btn btn-secondary">Connexion anonyme</button>
+        <button id="btn-signout" class="btn btn-secondary hidden">Se déconnecter</button>
+      </div>
+      <p id="auth-warning" class="mt-2 text-xs text-amber-700 hidden">Vous n'êtes pas connecté : les données ne seront sauvegardées que dans ce navigateur (localStorage).</p>
+    </header>
+
+    <!-- Mois & solde initial -->
+    <div class="card p-4 mb-8 flex flex-col md:flex-row items-center justify-between gap-4">
+      <div class="flex items-center gap-4">
+        <button id="prev-month-btn" class="btn btn-secondary p-2 rounded-full" aria-label="Mois précédent">◀</button>
+        <h2 id="current-month-display" class="text-2xl font-semibold text-gray-700 w-48 text-center"></h2>
+        <button id="next-month-btn" class="btn btn-secondary p-2 rounded-full" aria-label="Mois suivant">▶</button>
+      </div>
+      <div class="flex items-center gap-2">
+        <label for="starting-balance" class="font-medium text-gray-600">Solde initial (€):</label>
+        <input type="number" id="starting-balance" class="w-40" placeholder="Ex: 2500" />
+      </div>
+    </div>
+
+    <main class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <!-- Colonne de gauche: saisie -->
+      <div class="lg:col-span-1 flex flex-col gap-8">
+        <!-- Dépenses -->
+        <div class="card p-6">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-xl font-semibold text-gray-700">Ajouter une dépense</h3>
+            <button id="btn-manage-categories" class="btn btn-secondary text-sm">Gérer les catégories</button>
+          </div>
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-600 mb-2">1. Choisissez une catégorie</label>
+              <div id="expense-category-pills" class="flex flex-wrap gap-2"></div>
+            </div>
+            <div>
+              <label for="expense-amount" class="block text-sm font-medium text-gray-600 mb-1">2. Montant (€)</label>
+              <input type="number" id="expense-amount" placeholder="Ex: 50.25">
+            </div>
+            <div>
+              <label for="expense-comment" class="block text-sm font-medium text-gray-600 mb-1">3. Commentaire (facultatif)</label>
+              <input type="text" id="expense-comment" placeholder="Ex: Courses semaine 1">
+            </div>
+            <button id="add-expense-btn" class="btn btn-primary w-full bg-red-600 hover:bg-red-700">Ajouter la dépense</button>
+          </div>
+        </div>
+        <!-- Revenus -->
+        <div class="card p-6">
+          <h3 class="text-xl font-semibold mb-4 text-gray-700">Ajouter un revenu</h3>
+          <div class="space-y-4">
+            <div>
+              <label for="income-amount" class="block text-sm font-medium text-gray-600 mb-1">Montant (€)</label>
+              <input type="number" id="income-amount" placeholder="Ex: 3300">
+            </div>
+            <div>
+              <label for="income-comment" class="block text-sm font-medium text-gray-600 mb-1">Commentaire (facultatif)</label>
+              <input type="text" id="income-comment" placeholder="Ex: Salaire Net">
+            </div>
+            <button id="add-income-btn" class="btn btn-primary w-full">Ajouter le revenu</button>
+          </div>
+        </div>
+        <!-- Données -->
+        <div class="card p-6">
+          <h3 class="text-xl font-semibold mb-4 text-gray-700">Données</h3>
+          <div class="space-y-3">
+            <button id="export-csv-btn" class="btn btn-secondary w-full">Exporter toutes les données (CSV)</button>
+            <button id="import-csv-btn" class="btn btn-secondary w-full">Importer et remplacer les données (CSV)</button>
+            <input type="file" id="csv-file-input" class="hidden" accept=".csv" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Colonne de droite: Bilan & Graphiques -->
+      <div class="lg:col-span-2 flex flex-col gap-8">
+        <!-- Bilan -->
+        <div class="card p-6">
+          <h3 class="text-xl font-semibold mb-4 text-gray-700">Bilan du Mois</h3>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+            <div class="bg-green-50 p-4 rounded-lg"><p class="text-sm text-green-600 font-medium">Revenus Totaux</p><p id="total-income" class="text-2xl font-bold text-green-800">0.00 €</p></div>
+            <div class="bg-red-50 p-4 rounded-lg"><p class="text-sm text-red-600 font-medium">Dépenses Totales</p><p id="total-expenses" class="text-2xl font-bold text-red-800">0.00 €</p></div>
+            <div class="bg-indigo-50 p-4 rounded-lg"><p class="text-sm text-indigo-600 font-medium">Épargne du Mois</p><p id="monthly-saving" class="text-2xl font-bold text-indigo-800">0.00 €</p></div>
+            <div class="bg-gray-100 p-4 rounded-lg"><p class="text-sm text-gray-600 font-medium">Solde Final Estimé</p><p id="final-balance" class="text-2xl font-bold text-gray-800">0.00 €</p></div>
+          </div>
+          <div class="mt-6">
+            <h4 class="font-semibold text-gray-700">Objectif d'épargne : 1400 €</h4>
+            <div class="progress-bar mt-2"><div id="savings-progress" class="progress-bar-fill" style="width:0%"></div></div>
+            <p id="savings-progress-text" class="text-sm text-right mt-1 text-gray-500">0.00 € / 1400.00 €</p>
+          </div>
+        </div>
+        <!-- Répartition -->
+        <div class="card p-6">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-xl font-semibold text-gray-700">Répartition des Dépenses</h3>
+            <button id="export-chart-btn" class="btn btn-secondary">Exporter (PNG)</button>
+          </div>
+          <canvas id="expensesChart"></canvas>
+        </div>
+        <!-- Évolution du mois -->
+        <div class="card p-6">
+          <h3 class="text-xl font-semibold text-gray-700 mb-4">Évolution des Dépenses du Mois</h3>
+          <canvas id="temporalExpensesChart"></canvas>
+        </div>
+      </div>
+    </main>
+
+    <!-- Détail des transactions -->
+    <section class="mt-8">
+      <div class="card p-6">
+        <h3 class="text-2xl font-semibold mb-4 text-gray-700">Détail des Transactions</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <h4 class="text-lg font-semibold text-green-700 mb-2">Revenus</h4>
+            <div id="income-list" class="space-y-2 max-h-60 overflow-y-auto pr-2"><p class="text-gray-500">Aucun revenu ajouté pour ce mois.</p></div>
+          </div>
+          <div>
+            <h4 class="text-lg font-semibold text-red-700 mb-2">Dépenses par Catégorie</h4>
+            <div id="expense-list" class="space-y-4 max-h-96 overflow-y-auto pr-2"><p class="text-gray-500">Aucune dépense ajoutée.</p></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Modale Gérer les catégories -->
+    <dialog id="dlg-categories" class="rounded-2xl p-0 w-full max-w-xl">
+      <form method="dialog" class="card p-6">
+        <h3 class="text-xl font-semibold text-gray-800 mb-4">Gérer les catégories</h3>
+        <div class="space-y-3">
+          <div class="flex gap-2">
+            <input id="new-category-input" class="flex-1" placeholder="Ex: Restaurant (fast food)" />
+            <button id="btn-add-category" type="button" class="btn btn-primary">Ajouter</button>
+          </div>
+          <div id="category-list" class="divide-y"></div>
+        </div>
+        <div class="mt-6 flex justify-end gap-2">
+          <button class="btn btn-secondary" value="cancel">Fermer</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Section Analyse IA (inchangée pour l'instant) -->
+    <section class="mt-8">
+      <div class="card p-6">
+        <h3 class="text-2xl font-semibold mb-4 text-gray-700">Analyse et Suggestions d'Économies par IA</h3>
+        <p class="text-gray-600 mb-4">Fonctionnement à venir (prompts & intégration GitHub Actions possible).</p>
+      </div>
+    </section>
+  </div>
+
+  <!-- App JS + Firebase (module) -->
+  <script type="module">
+    // ---------- Firebase imports ----------
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+    import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInAnonymously, signOut } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+    import { getFirestore, doc, getDoc, setDoc, collection, getDocs } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+
+    // ---------- Firebase config (REMPLACE ces valeurs par celles de ton projet) ----------
+    const firebaseConfig = {
+      apiKey: "__API_KEY__",
+      authDomain: "__PROJECT_ID__.firebaseapp.com",
+      projectId: "__PROJECT_ID__",
+      storageBucket: "__PROJECT_ID__.appspot.com",
+      messagingSenderId: "__SENDER_ID__",
+      appId: "__APP_ID__"
+    };
+
+    // ---------- App State ----------
+    const SAVINGS_GOAL = 1400;
+    let currentMonth = new Date();
+    let appData = {}; // { 'YYYY-MM': { startingBalance, incomes[], expenses[] } }
+    let expensesChart, temporalExpensesChart;
+    let selectedCategory = null;
+    let userCategories = [
+      'Alimentation (courses)',
+      'Restaurant',
+      'Transports',
+      'Factures récurrentes',
+      'Abonnements',
+      'Loyer',
+      'Santé',
+      'Loisirs & Sorties',
+      'Vêtements & Shopping',
+      'Dépenses Mariage',
+      'Dépenses Vacances',
+      'Religion – denier du culte',
+      'Religion – week-end communauté',
+      'Autre'
+    ];
+
+    // ---------- DOM ----------
+    const startingBalanceEl = document.getElementById('starting-balance');
+    const currentMonthDisplay = document.getElementById('current-month-display');
+    const prevMonthBtn = document.getElementById('prev-month-btn');
+    const nextMonthBtn = document.getElementById('next-month-btn');
+    const incomeAmountEl = document.getElementById('income-amount');
+    const incomeCommentEl = document.getElementById('income-comment');
+    const addIncomeBtn = document.getElementById('add-income-btn');
+    const expenseCategoryPillsEl = document.getElementById('expense-category-pills');
+    const expenseAmountEl = document.getElementById('expense-amount');
+    const expenseCommentEl = document.getElementById('expense-comment');
+    const addExpenseBtn = document.getElementById('add-expense-btn');
+    const totalIncomeEl = document.getElementById('total-income');
+    const totalExpensesEl = document.getElementById('total-expenses');
+    const monthlySavingEl = document.getElementById('monthly-saving');
+    const finalBalanceEl = document.getElementById('final-balance');
+    const savingsProgress = document.getElementById('savings-progress');
+    const savingsProgressText = document.getElementById('savings-progress-text');
+    const incomeListEl = document.getElementById('income-list');
+    const expenseListEl = document.getElementById('expense-list');
+    const exportCsvBtn = document.getElementById('export-csv-btn');
+    const importCsvBtn = document.getElementById('import-csv-btn');
+    const csvFileInput = document.getElementById('csv-file-input');
+    const exportChartBtn = document.getElementById('export-chart-btn');
+    const expensesCtx = document.getElementById('expensesChart').getContext('2d');
+    const temporalCtx = document.getElementById('temporalExpensesChart').getContext('2d');
+
+    const btnGoogle = document.getElementById('btn-google');
+    const btnAnon = document.getElementById('btn-anon');
+    const btnSignout = document.getElementById('btn-signout');
+    const authStatus = document.getElementById('auth-status');
+    const authWarning = document.getElementById('auth-warning');
+
+    const dlgCategories = document.getElementById('dlg-categories');
+    const btnManageCategories = document.getElementById('btn-manage-categories');
+    const newCategoryInput = document.getElementById('new-category-input');
+    const btnAddCategory = document.getElementById('btn-add-category');
+    const categoryList = document.getElementById('category-list');
+
+    // ---------- Firebase init ----------
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    onAuthStateChanged(auth, async (user) => {
+      window._user = user || null;
+      updateAuthUI();
+      if (user) {
+        await loadUserCategories();
+        await loadAllMonthsToMemory();
+      } else {
+        loadFromLocalStorage();
+      }
+      updateUI();
+    });
+
+    btnGoogle.onclick = async () => {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+    };
+    btnAnon.onclick = async () => { await signInAnonymously(auth); };
+    btnSignout.onclick = async () => { await signOut(auth); };
+
+    function updateAuthUI() {
+      if (window._user) {
+        authStatus.textContent = window._user.isAnonymous ? 'Connecté (anonyme)' : `Connecté : ${window._user.email}`;
+        btnSignout.classList.remove('hidden');
+        btnGoogle.classList.add('hidden');
+        btnAnon.classList.add('hidden');
+        authWarning.classList.add('hidden');
+      } else {
+        authStatus.textContent = 'Non connecté';
+        btnSignout.classList.add('hidden');
+        btnGoogle.classList.remove('hidden');
+        btnAnon.classList.remove('hidden');
+        authWarning.classList.remove('hidden');
+      }
+    }
+
+    // ---------- Helpers ----------
+    const getMonthKey = (date) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`;
+
+    function loadFromLocalStorage() {
+      const saved = localStorage.getItem('budgetAppData');
+      appData = saved ? JSON.parse(saved) : {};
+      const cats = localStorage.getItem('budgetCategories');
+      if (cats) userCategories = JSON.parse(cats);
+    }
+    function saveToLocalStorage() {
+      localStorage.setItem('budgetAppData', JSON.stringify(appData));
+      localStorage.setItem('budgetCategories', JSON.stringify(userCategories));
+    }
+
+    async function loadAllMonthsToMemory() {
+      if (!window._user) return;
+      appData = {};
+      const monthsCol = collection(db, 'users', window._user.uid, 'months');
+      const snap = await getDocs(monthsCol);
+      snap.forEach(d => { appData[d.id] = d.data(); });
+      // Ensure current month exists
+      const mk = getMonthKey(currentMonth);
+      if (!appData[mk]) appData[mk] = { startingBalance: 0, incomes: [], expenses: [] };
+    }
+
+    async function saveMonthToFirestore(monthKey) {
+      if (!window._user) { saveToLocalStorage(); return; }
+      const ref = doc(db, 'users', window._user.uid, 'months', monthKey);
+      await setDoc(ref, appData[monthKey] || { startingBalance:0, incomes:[], expenses:[] }, { merge: true });
+    }
+
+    async function loadUserCategories() {
+      if (!window._user) return;
+      const ref = doc(db, 'users', window._user.uid);
+      const snap = await getDoc(ref);
+      if (snap.exists() && Array.isArray(snap.data().categories)) {
+        userCategories = snap.data().categories;
+      } else {
+        // seed defaults on first run
+        await setDoc(ref, { categories: userCategories }, { merge: true });
+      }
+    }
+    async function saveUserCategories() {
+      if (!window._user) { saveToLocalStorage(); return; }
+      const ref = doc(db, 'users', window._user.uid);
+      await setDoc(ref, { categories: userCategories }, { merge: true });
+    }
+
+    // ---------- UI: categories ----------
+    function renderCategoryPills() {
+      expenseCategoryPillsEl.innerHTML = '';
+      userCategories.forEach(cat => {
+        const pill = document.createElement('button');
+        pill.className = 'category-pill';
+        pill.textContent = cat;
+        pill.dataset.category = cat;
+        pill.addEventListener('click', () => {
+          document.querySelectorAll('.category-pill').forEach(p => p.classList.remove('selected'));
+          pill.classList.add('selected');
+          selectedCategory = cat;
+        });
+        expenseCategoryPillsEl.appendChild(pill);
+      });
+    }
+
+    function renderCategoryManager() {
+      categoryList.innerHTML = '';
+      userCategories.forEach((cat, idx) => {
+        const row = document.createElement('div');
+        row.className = 'flex items-center justify-between py-2';
+        row.innerHTML = `
+          <input class="flex-1 mr-3 border rounded px-3 py-2" value="${cat.replace(/\"/g, '&quot;')}" />
+          <button class="btn btn-secondary mr-2" data-action="up" data-idx="${idx}">↑</button>
+          <button class="btn btn-secondary mr-2" data-action="down" data-idx="${idx}">↓</button>
+          <button class="btn btn-secondary" data-action="del" data-idx="${idx}">Supprimer</button>`;
+        categoryList.appendChild(row);
+      });
+    }
+
+    btnManageCategories.onclick = () => { renderCategoryManager(); dlgCategories.showModal(); };
+    btnAddCategory.onclick = async () => {
+      const v = (newCategoryInput.value||'').trim();
+      if (!v) return;
+      if (!userCategories.includes(v)) userCategories.push(v);
+      newCategoryInput.value = '';
+      await saveUserCategories();
+      renderCategoryPills();
+      renderCategoryManager();
+    };
+    categoryList.addEventListener('click', async (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      const idx = parseInt(btn.dataset.idx, 10);
+      const action = btn.dataset.action;
+      if (action === 'del') userCategories.splice(idx,1);
+      if (action === 'up' && idx>0) [userCategories[idx-1], userCategories[idx]] = [userCategories[idx], userCategories[idx-1]];
+      if (action === 'down' && idx<userCategories.length-1) [userCategories[idx+1], userCategories[idx]] = [userCategories[idx], userCategories[idx+1]];
+      await saveUserCategories();
+      renderCategoryPills();
+      renderCategoryManager();
+    });
+
+    // ---------- UI: core update ----------
+    function updateUI() {
+      const monthKey = getMonthKey(currentMonth);
+      if (!appData[monthKey]) appData[monthKey] = { startingBalance: 0, incomes: [], expenses: [] };
+      const monthData = appData[monthKey];
+
+      currentMonthDisplay.textContent = currentMonth.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+      startingBalanceEl.value = monthData.startingBalance || '';
+
+      renderIncomeList(monthData.incomes);
+      renderExpenseList(monthData.expenses);
+      renderCategoryPills();
+
+      const totalIncome = monthData.incomes.reduce((s,i)=>s+i.amount,0);
+      const totalExpenses = monthData.expenses.reduce((s,i)=>s+i.amount,0);
+      const monthlySaving = totalIncome - totalExpenses;
+      const finalBalance = (monthData.startingBalance||0) + monthlySaving;
+
+      totalIncomeEl.textContent = `${totalIncome.toFixed(2)} €`;
+      totalExpensesEl.textContent = `${totalExpenses.toFixed(2)} €`;
+      monthlySavingEl.textContent = `${monthlySaving.toFixed(2)} €`;
+      finalBalanceEl.textContent = `${finalBalance.toFixed(2)} €`;
+      monthlySavingEl.classList.toggle('text-red-800', monthlySaving < 0);
+      monthlySavingEl.classList.toggle('text-indigo-800', monthlySaving >= 0);
+
+      const progress = Math.max(0, (monthlySaving / SAVINGS_GOAL) * 100);
+      savingsProgress.style.width = `${Math.min(100, progress)}%`;
+      savingsProgressText.textContent = `${monthlySaving.toFixed(2)} € / ${SAVINGS_GOAL.toFixed(2)} €`;
+
+      renderPieChart(monthData.expenses);
+      renderTemporalChart(monthData.expenses);
+
+      // persist
+      if (window._user) {
+        saveMonthToFirestore(monthKey);
+      } else {
+        saveToLocalStorage();
+      }
+    }
+
+    function renderIncomeList(incomes){
+      incomeListEl.innerHTML = incomes.length===0
+        ? '<p class="text-gray-500">Aucun revenu ajouté.</p>'
+        : incomes.map(income=>`
+          <div class="flex justify-between items-center p-2 bg-gray-50 rounded">
+            <p class="font-medium text-gray-800">${income.comment ? income.comment.replace(/</g,'&lt;') : '<i>Aucun commentaire</i>'}</p>
+            <div class="flex items-center gap-4">
+              <span class="font-semibold text-green-600">${income.amount.toFixed(2)} €</span>
+              <button class="delete-btn text-gray-400 hover:text-red-500" data-id="${income.id}" data-type="income">&times;</button>
+            </div>
+          </div>`).join('');
+    }
+
+    function renderExpenseList(expenses){
+      if (expenses.length===0){ expenseListEl.innerHTML = '<p class="text-gray-500">Aucune dépense ajoutée.</p>'; return; }
+      const grouped = expenses.reduce((acc,e)=>{ (acc[e.category] ||= []).push(e); return acc; },{});
+      expenseListEl.innerHTML = Object.entries(grouped).map(([cat, items])=>{
+        const catTotal = items.reduce((s,i)=>s+i.amount,0);
+        const itemsHtml = items.map(exp=>`
+          <div class="flex justify-between items-center text-sm ml-4 py-1 border-t border-gray-100">
+            <span class="text-gray-600">${exp.comment ? exp.comment.replace(/</g,'&lt;') : '<i>Aucun commentaire</i>'}</span>
+            <div class="flex items-center gap-2">
+              <span class="text-gray-800">${exp.amount.toFixed(2)} €</span>
+              <button class="delete-btn text-gray-400 hover:text-red-500" data-id="${exp.id}" data-type="expense">&times;</button>
+            </div>
+          </div>`).join('');
+        return `<div class="mb-2">
+          <div class="flex justify-between items-center font-semibold mb-1"><span>${cat}</span><span>${catTotal.toFixed(2)} €</span></div>
+          ${itemsHtml}
+        </div>`;
+      }).join('');
+    }
+
+    function renderPieChart(expenses){
+      const grouped = expenses.reduce((acc,e)=>{ acc[e.category]=(acc[e.category]||0)+e.amount; return acc; },{});
+      if (expensesChart) expensesChart.destroy();
+      const hasData = Object.keys(grouped).length>0;
+      expensesChart = new Chart(expensesCtx, {
+        type:'doughnut',
+        data:{ labels: hasData? Object.keys(grouped): ['Aucune dépense'], datasets:[{ data: hasData? Object.values(grouped): [1], borderColor:'#fff', borderWidth:2 }]},
+        options:{ responsive:true, plugins:{ legend:{ display:hasData, position:'top' } }, events: hasData? ['mousemove','mouseout','click','touchstart','touchmove']: [] }
+      });
+    }
+
+    function renderTemporalChart(expenses){
+      if (temporalExpensesChart) temporalExpensesChart.destroy();
+      if (expenses.length < 2) {
+        temporalExpensesChart = new Chart(temporalCtx, { type:'line', data:{ labels:['Début du mois'], datasets:[{ label:'Dépenses cumulées', data:[0] }]}, options:{ responsive:true, plugins:{ legend:{ display:false }, title:{ display:true, text:'Pas assez de données pour afficher une évolution', font:{ size:14 } } }, scales:{ y:{ beginAtZero:true, ticks:{ callback:v=>`${v} €` } } } } });
+        return;
+      }
+      const sorted = [...expenses].sort((a,b)=>a.id-b.id);
+      const labels = [], data = [];
+      let cum = 0;
+      sorted.forEach(e=>{ cum += e.amount; labels.push(new Date(e.id).toLocaleDateString('fr-FR',{ day:'numeric', month:'short'})); data.push(cum); });
+      temporalExpensesChart = new Chart(temporalCtx, { type:'line', data:{ labels, datasets:[{ label:'Dépenses cumulées', data, fill:true, tension:.4 }]}, options:{ responsive:true, plugins:{ legend:{ display:false } }, scales:{ y:{ beginAtZero:true, ticks:{ callback:v=> v+' €' } } } } });
+    }
+
+    // ---------- Events ----------
+    prevMonthBtn.addEventListener('click', ()=>{ currentMonth.setMonth(currentMonth.getMonth()-1); updateUI(); });
+    nextMonthBtn.addEventListener('click', ()=>{ currentMonth.setMonth(currentMonth.getMonth()+1); updateUI(); });
+    startingBalanceEl.addEventListener('change', ()=>{ const mk=getMonthKey(currentMonth); appData[mk].startingBalance = parseFloat(startingBalanceEl.value)||0; updateUI(); });
+
+    function addTransaction(type){
+      const amountEl = type==='income' ? incomeAmountEl : expenseAmountEl;
+      const commentEl = type==='income' ? incomeCommentEl : expenseCommentEl;
+      const amount = parseFloat(amountEl.value);
+      const comment = (commentEl.value||'').trim();
+      if (!amount || amount<=0 || (type==='expense' && !selectedCategory)){
+        if (!amount || amount<=0){ amountEl.classList.add('border-red-500','ring-2','ring-red-200'); setTimeout(()=>amountEl.classList.remove('border-red-500','ring-2','ring-red-200'),2000); }
+        if (type==='expense' && !selectedCategory){ expenseCategoryPillsEl.classList.add('p-2','rounded-lg','ring-2','ring-red-500'); setTimeout(()=>expenseCategoryPillsEl.classList.remove('p-2','rounded-lg','ring-2','ring-red-500'),2000); }
+        return;
+      }
+      const mk = getMonthKey(currentMonth);
+      const tx = { id: Date.now(), amount, comment };
+      if (type==='expense') { tx.category = selectedCategory; appData[mk].expenses.push(tx); document.querySelectorAll('.category-pill.selected').forEach(p=>p.classList.remove('selected')); selectedCategory=null; }
+      else { appData[mk].incomes.push(tx); }
+      amountEl.value=''; commentEl.value='';
+      updateUI();
+    }
+
+    addIncomeBtn.addEventListener('click', ()=> addTransaction('income'));
+    addExpenseBtn.addEventListener('click', ()=> addTransaction('expense'));
+    ;[incomeAmountEl,incomeCommentEl].forEach(el=>el.addEventListener('keydown',(e)=>{ if(e.key==='Enter') addTransaction('income'); }));
+    ;[expenseAmountEl,expenseCommentEl].forEach(el=>el.addEventListener('keydown',(e)=>{ if(e.key==='Enter') addTransaction('expense'); }));
+
+    document.body.addEventListener('click', (e)=>{
+      const btn = e.target.closest('.delete-btn');
+      if (!btn) return;
+      const { id, type } = btn.dataset;
+      const mk = getMonthKey(currentMonth);
+      const key = type==='income' ? 'incomes' : 'expenses';
+      appData[mk][key] = appData[mk][key].filter(i=> i.id !== parseInt(id));
+      updateUI();
+    });
+
+    // ---------- CSV Export/Import (sera renforcé ensuite) ----------
+    exportCsvBtn.addEventListener('click', ()=>{
+      // Export de toutes les données sous forme de lignes normalisées
+      const rows = [['month','type','amount','category','comment','id']];
+      Object.entries(appData).forEach(([mk, data])=>{
+        data.incomes.forEach(i=> rows.push([mk,'income',i.amount,'',i.comment||'', i.id]));
+        data.expenses.forEach(x=> rows.push([mk,'expense',x.amount,x.category||'',x.comment||'', x.id]));
+      });
+      const csv = rows.map(r=> r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(',')).join('\n');
+      const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'budget_data.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    });
+
+    importCsvBtn.addEventListener('click', ()=> csvFileInput.click());
+    csvFileInput.addEventListener('change', async (e)=>{
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const text = await file.text();
+      // Très simple parser CSV (guillemets doublés)
+      const lines = text.split(/\r?\n/).filter(Boolean);
+      const header = lines.shift();
+      const cols = header.split(',').map(s=> s.replace(/^\"|\"$/g,'').toLowerCase());
+      const idx = (name)=> cols.indexOf(name);
+      const nextData = {};
+      for (const line of lines){
+        const parts = line.match(/\"(?:[^\"]|\"\")*\"|[^,]+/g)?.map(s=> s.replace(/^\"|\"$/g,'').replace(/\"\"/g,'"')) || [];
+        const mk = parts[idx('month')];
+        const type = parts[idx('type')];
+        const amount = parseFloat(parts[idx('amount')]||'0')||0;
+        const category = parts[idx('category')]||'';
+        const comment = parts[idx('comment')]||'';
+        const id = parseInt(parts[idx('id')]||Date.now());
+        if (!nextData[mk]) nextData[mk] = { startingBalance: 0, incomes: [], expenses: [] };
+        if (type==='income') nextData[mk].incomes.push({ id, amount, comment });
+        else if (type==='expense') nextData[mk].expenses.push({ id, amount, comment, category });
+      }
+      appData = nextData;
+      if (window._user){
+        // push all to Firestore
+        await Promise.all(Object.keys(appData).map(mk=> setDoc(doc(db,'users',window._user.uid,'months',mk), appData[mk])));
+      } else {
+        saveToLocalStorage();
+      }
+      csvFileInput.value = '';
+      updateUI();
+      alert('Import terminé.');
+    });
+
+    exportChartBtn.addEventListener('click', ()=>{
+      const url = document.getElementById('expensesChart').toDataURL('image/png');
+      const a = document.createElement('a'); a.href = url; a.download = 'repartition_depenses.png'; a.click();
+    });
+
+    // ---------- Init ----------
+    loadFromLocalStorage();
+    updateUI();
+  </script>
+</body>
+</html>
