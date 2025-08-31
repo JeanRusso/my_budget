@@ -187,7 +187,7 @@
   <!-- App JS + Firebase (module) -->
   <script type="module">
     // ---------- Firebase imports ----------
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 
     import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInAnonymously, signOut } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
     import { getFirestore, doc, getDoc, setDoc, collection, getDocs } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
@@ -212,9 +212,6 @@
   };
 
 
-  // Initialize Firebase
-
-  const app = initializeApp(firebaseConfig);
 
 
     // ---------- App State ----------
