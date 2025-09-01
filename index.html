@@ -221,13 +221,15 @@
     </section>
   </div>
 
-  <!-- pdf.js local (mettre les fichiers à côté) -->
-  <script src="./pdf.js"></script>
+  <script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
   <script>
-    if (window['pdfjsLib']) {
-      try { pdfjsLib.GlobalWorkerOptions.workerSrc = './pdf.worker.js'; } catch (e) {}
-    }
+    // on ne charge PAS le worker en <script>; on pointe juste son chemin :
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+    console.log("[pdf.js]", pdfjsLib?.version || "no global");
   </script>
+
+  
 
   <!-- App JS + Firebase (module) -->
   <script type="module">
@@ -548,8 +550,16 @@
     // -------- PDF IMPORT --------
     btnParsePdf.addEventListener('click', async ()=>{
       const file = pdfFileInput.files?.[0]; if (!file) { alert('Choisis un fichier PDF.'); return; }
-      const arrayBuf = await file.arrayBuffer(); if (!window.pdfjsLib) { alert('pdf.js introuvable. Place pdf.min.js et pdf.worker.min.js à côté.'); return; }
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuf }).promise; let allItems = [];
+      const arrayBuf = await file.arrayBuffer();
+      const PDFJS = window.pdfjsLib;
+
+      if (!PDFJS) throw new Error('pdfjsLib non défini');
+      const pdf = await PDFJS.getDocument({ data: arrayBuffer }).promise;
+      if (!window.pdfjsLib)
+      { 
+        alert('pdf.js introuvable. Place pdf.min.js et pdf.worker.min.js à côté.'); return; 
+      }
+      let allItems = [];
       for (let p=1; p<=pdf.numPages; p++){ const page = await pdf.getPage(p); const content = await page.getTextContent(); allItems.push(...content.items.map(i=> ({ s: i.str, x: i.transform[4], y: i.transform[5] }))); }
       const lines = groupIntoLines(allItems); const txs = extractTransactions(lines);
       if (txs.length === 0){ alert('Aucune opération détectée. Vérifie le PDF.'); return; }
@@ -568,7 +578,7 @@
     function groupIntoLines(items){ const byY = {}; items.forEach(it=>{ const y = Math.round(it.y/2); (byY[y] ||= []).push(it); }); const ys = Object.keys(byY).map(Number).sort((a,b)=>b-a); const lines = ys.map(y=> byY[y].sort((a,b)=>a.x-b.x).map(i=>i.s).join(' ').replace(/\s+/g,' ').trim()).filter(Boolean); return lines; }
     function extractTransactions(lines){ const txs = []; const dateRe = /(?<d>\b\d{2}\/\d{2}(?:\/\d{2,4})?)/; const amtRe = /([+-]?\d{1,3}(?: \d{3})*,\d{2})\b/; const yearNow = new Date().getFullYear(); for (const ln of lines){ const dM = ln.match(dateRe); const aM = ln.match(amtRe); if (!dM || !aM) continue; const dateStr = dM.groups?.d || dM[0]; let label = ln.replace(dateStr, '').replace(aM[0],'').trim(); label = label.replace(/^[-–—\s:]+/, '').replace(/\s{2,}/g,' '); const amt = parseFloat(aM[0].replace(/\./g,'').replace(/ /g,'').replace(',','.')); const sign = ln.includes('-'+aM[0].replace('+','').replace('-','')) ? -1 : (ln.includes('-')? -1 : 1); const amount = sign<0 ? -Math.abs(amt) : Math.abs(amt); const parts = dateStr.split('/').map(n=>parseInt(n,10)); const [dd, mm, yy] = parts.length===3 ? parts : [parts[0], parts[1], yearNow]; const fullYear = (yy<100) ? (2000+yy) : yy; const date = new Date(fullYear, mm-1, dd); if (/^solde|^total|^report|^nouveau/i.test(label)) continue; txs.push({ date, dateStr: date.toLocaleDateString('fr-FR'), label, amount }); } return txs; }
     function normalizeLabel(s){ return (s||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9 ]/g,'').replace(/\s+/g,' ').trim(); }
-    function suggestCategory(tx){ const key = normalizeLabel(tx.label); if (labelRules[key]) return labelRules[key]; const L = key; const kws = [ ['Alimentation (courses)', /CARREFOUR|INTERMARCHE|LIDL|ALDI|AUCHAN|MONOPRIX|LECLERC|PICARD/], ['Restaurant', /UBER\s*EATS|DELIVEROO|MC ?DONALD|KFC|BURGER KING|PIZZA|BOULANGERIE|RESTAURANT|BISTRO|CAFE/], ['Transports', /SNCF|RATP|BILLET|UBER\b|BOLT\b|TOTAL|ESSO|AUTOROUTE|PEAGE|T\s?+|AIR FRANCE|RYANAIR|TRANSILIEN/], ['Factures récurrentes', /ELECTRICITE|EDF|ENGIE|EAU|SFR|FREE|ORANGE|BOUYGUES|INTERNET|ASSURANCE|AMAZON PRIME/], ['Abonnements', /SPOTIFY|NETFLIX|YOUTUBE|APPLE MUSIC|GOOGLE|MICROSOFT|ADOBE|SUBSCRIPTION|ABONNEMENT/], ['Loyer', /LOYER|LOCATION|BAIL|GARANTIE LOCATIVE/], ['Santé', /PHARMACIE|MEDECIN|DOCTOLIB|DENTISTE|HOPITAL|LABO/], ['Loisirs & Sorties', /FNAC|CULTURA|JEU|CINEMA|THEATRE|PARC|MUSEE/], ['Vêtements & Shopping', /ZARA|H&M|DECATHLON|GO SPORT|NIKE|ADIDAS|GALERIES LAFAYETTE|PRINTEMPS/], ['Dépenses Vacances', /HOTEL|BOOKING|AIRBNB|HOSTEL|CAMPING|VOYAGE/] ]; for (const [cat, re] of kws){ if (re.test(L)) return cat; } return 'Autre'; }
+    function suggestCategory(tx){ const key = normalizeLabel(tx.label); if (labelRules[key]) return labelRules[key]; const L = key; const kws = [ ['Alimentation (courses)', /CARREFOUR|INTERMARCHE|LIDL|ALDI|AUCHAN|MONOPRIX|LECLERC|PICARD/], ['Restaurant', /UBER\s*EATS|DELIVEROO|MC ?DONALD|KFC|BURGER KING|PIZZA|BOULANGERIE|RESTAURANT|BISTRO|CAFE/], ['Transports', /SNCF|RATP|BILLET|UBER\b|BOLT\b|TOTAL|ESSO|AUTOROUTE|PEAGE|T\+|AIR FRANCE|RYANAIR|TRANSILIEN/], ['Factures récurrentes', /ELECTRICITE|EDF|ENGIE|EAU|SFR|FREE|ORANGE|BOUYGUES|INTERNET|ASSURANCE|AMAZON PRIME/], ['Abonnements', /SPOTIFY|NETFLIX|YOUTUBE|APPLE MUSIC|GOOGLE|MICROSOFT|ADOBE|SUBSCRIPTION|ABONNEMENT/], ['Loyer', /LOYER|LOCATION|BAIL|GARANTIE LOCATIVE/], ['Santé', /PHARMACIE|MEDECIN|DOCTOLIB|DENTISTE|HOPITAL|LABO/], ['Loisirs & Sorties', /FNAC|CULTURA|JEU|CINEMA|THEATRE|PARC|MUSEE/], ['Vêtements & Shopping', /ZARA|H&M|DECATHLON|GO SPORT|NIKE|ADIDAS|GALERIES LAFAYETTE|PRINTEMPS/], ['Dépenses Vacances', /HOTEL|BOOKING|AIRBNB|HOSTEL|CAMPING|VOYAGE/] ]; for (const [cat, re] of kws){ if (re.test(L)) return cat; } return 'Autre'; }
 
     loadFromLocalStorage(); updateUI();
   </script>
