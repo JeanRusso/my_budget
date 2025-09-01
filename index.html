@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gestion de Budget – Firebase Sync + Import PDF</title>
+  <title>Gestion de Budget – Firebase Sync + Import OFX</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -99,7 +99,7 @@
             <button id="add-income-btn" class="btn btn-primary w-full">Ajouter le revenu</button>
           </div>
         </div>
-        <!-- Données & Import PDF -->
+        <!-- Données & Import OFX -->
         <div class="card p-6">
           <h3 class="text-xl font-semibold mb-4 text-gray-700">Données</h3>
           <div class="space-y-3">
@@ -107,12 +107,12 @@
             <button id="import-csv-btn" class="btn btn-secondary w-full">Importer et remplacer les données (CSV)</button>
             <input type="file" id="csv-file-input" class="hidden" accept=".csv" />
             <hr class="my-3">
-            <h4 class="text-lg font-semibold text-gray-700">Importer un relevé Caisse d'Épargne (PDF)</h4>
-            <p class="text-sm text-gray-500">Mettre <code>pdf.min.js</code> et <code>pdf.worker.min.js</code> à côté de ce fichier. (voir lignes de config dans le code)</p>
+            <h4 class="text-lg font-semibold text-gray-700">Importer un relevé Caisse d'Épargne (OFX)</h4>
+            <p class="text-sm text-gray-500">Télécharge ton fichier .ofx depuis l'espace client (période multi-mois possible).</p>
             <div class="flex items-center gap-2">
-              <input type="file" id="pdf-file-input" accept="application/pdf" class="w-full" />
+              <input type="file" id="ofx-file-input" accept=".ofx,application/x-ofx,application/ofx" class="w-full" />
             </div>
-            <button id="btn-parse-pdf" class="btn btn-primary w-full">Analyser le PDF</button>
+            <button id="btn-parse-ofx" class="btn btn-primary w-full">Importer OFX</button>
           </div>
         </div>
       </div>
@@ -184,7 +184,7 @@
       </form>
     </dialog>
 
-    <!-- Modale de revue d'import PDF -->
+    <!-- Modale de revue d'import -->
     <dialog id="dlg-import" class="rounded-2xl p-0 w-full max-w-5xl">
       <form method="dialog" class="card p-0">
         <div class="p-6 border-b">
@@ -200,6 +200,7 @@
                 <th class="py-2">Montant</th>
                 <th class="py-2">Catégorie suggérée</th>
                 <th class="py-2">Commentaire (opt.)</th>
+                <th class="py-2 w-32">Actions</th>
               </tr>
             </thead>
             <tbody id="import-rows"></tbody>
@@ -221,18 +222,9 @@
     </section>
   </div>
 
-  <script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
-  <script>
-    // on ne charge PAS le worker en <script>; on pointe juste son chemin :
-    pdfjsLib.GlobalWorkerOptions.workerSrc =
-      "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
-    console.log("[pdf.js]", pdfjsLib?.version || "no global");
-  </script>
-
-  
-
   <!-- App JS + Firebase (module) -->
   <script type="module">
+    // ---------- Firebase ----------
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInAnonymously, signOut } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
     import { getFirestore, doc, getDoc, setDoc, collection, getDocs } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
@@ -246,18 +238,31 @@
       appId: "1:626176730343:web:233508ab9c71ff16596e42"
     };
 
+    // ---------- App State ----------
     const SAVINGS_GOAL = 1400;
     let currentMonth = new Date();
-    let appData = {};
+    let appData = {}; // { 'YYYY-MM': { startingBalance, incomes[], expenses[] } }
     let expensesChart, temporalExpensesChart;
     let selectedCategory = null;
-
     let labelRules = {};
-
     let userCategories = [
-      'Alimentation (courses)', 'Restaurant', 'Transports', 'Factures récurrentes', 'Abonnements', 'Loyer', 'Santé', 'Loisirs & Sorties', 'Vêtements & Shopping', 'Dépenses Mariage', 'Dépenses Vacances', 'Religion – denier du culte', 'Religion – week-end communauté', 'Autre'
+      'Alimentation (courses)',
+      'Restaurant',
+      'Transports',
+      'Factures récurrentes',
+      'Abonnements',
+      'Loyer',
+      'Santé',
+      'Loisirs & Sorties',
+      'Vêtements & Shopping',
+      'Dépenses Mariage',
+      'Dépenses Vacances',
+      'Religion – denier du culte',
+      'Religion – week-end communauté',
+      'Autre'
     ];
 
+    // ---------- DOM ----------
     const startingBalanceEl = document.getElementById('starting-balance');
     const currentMonthDisplay = document.getElementById('current-month-display');
     const prevMonthBtn = document.getElementById('prev-month-btn');
@@ -296,12 +301,13 @@
     const btnAddCategory = document.getElementById('btn-add-category');
     const categoryList = document.getElementById('category-list');
 
-    const pdfFileInput = document.getElementById('pdf-file-input');
-    const btnParsePdf = document.getElementById('btn-parse-pdf');
+    const ofxFileInput = document.getElementById('ofx-file-input');
+    const btnParseOfx = document.getElementById('btn-parse-ofx');
     const dlgImport = document.getElementById('dlg-import');
     const importRowsTbody = document.getElementById('import-rows');
     const btnValidateImport = document.getElementById('btn-validate-import');
 
+    // ---------- Firebase init ----------
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
@@ -326,16 +332,25 @@
     function updateAuthUI() {
       if (window._user) {
         authStatus.textContent = window._user.isAnonymous ? 'Connecté (anonyme)' : `Connecté : ${window._user.email}`;
-        btnSignout.classList.remove('hidden'); btnGoogle.classList.add('hidden'); btnAnon.classList.add('hidden'); authWarning.classList.add('hidden');
+        btnSignout.classList.remove('hidden');
+        btnGoogle.classList.add('hidden');
+        btnAnon.classList.add('hidden');
+        authWarning.classList.add('hidden');
       } else {
-        authStatus.textContent = 'Non connecté'; btnSignout.classList.add('hidden'); btnGoogle.classList.remove('hidden'); btnAnon.classList.remove('hidden'); authWarning.classList.remove('hidden');
+        authStatus.textContent = 'Non connecté';
+        btnSignout.classList.add('hidden');
+        btnGoogle.classList.remove('hidden');
+        btnAnon.classList.remove('hidden');
+        authWarning.classList.remove('hidden');
       }
     }
 
+    // ---------- Persistence helpers ----------
     const getMonthKey = (date) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`;
 
     function loadFromLocalStorage() {
-      const saved = localStorage.getItem('budgetAppData'); appData = saved ? JSON.parse(saved) : {};
+      const saved = localStorage.getItem('budgetAppData');
+      appData = saved ? JSON.parse(saved) : {};
       const cats = localStorage.getItem('budgetCategories'); if (cats) userCategories = JSON.parse(cats);
       const rules = localStorage.getItem('budgetLabelRules'); labelRules = rules ? JSON.parse(rules) : {};
     }
@@ -351,7 +366,8 @@
       const monthsCol = collection(db, 'users', window._user.uid, 'months');
       const snap = await getDocs(monthsCol);
       snap.forEach(d => { appData[d.id] = d.data(); });
-      const mk = getMonthKey(currentMonth); if (!appData[mk]) appData[mk] = { startingBalance: 0, incomes: [], expenses: [] };
+      const mk = getMonthKey(currentMonth);
+      if (!appData[mk]) appData[mk] = { startingBalance: 0, incomes: [], expenses: [] };
     }
 
     async function saveMonthToFirestore(monthKey) {
@@ -365,8 +381,11 @@
       const ref = doc(db, 'users', window._user.uid);
       const snap = await getDoc(ref);
       if (snap.exists()) {
-        const data = snap.data(); if (Array.isArray(data.categories)) userCategories = data.categories;
-      } else { await setDoc(ref, { categories: userCategories }, { merge: true }); }
+        const data = snap.data();
+        if (Array.isArray(data.categories)) userCategories = data.categories;
+      } else {
+        await setDoc(ref, { categories: userCategories }, { merge: true });
+      }
     }
     async function saveUserCategories() {
       if (!window._user) { saveToLocalStorage(); return; }
@@ -374,14 +393,31 @@
       await setDoc(ref, { categories: userCategories }, { merge: true });
     }
 
-    async function loadLabelRules(){ if (!window._user) return; const ref = doc(db, 'users', window._user.uid); const snap = await getDoc(ref); if (snap.exists() && snap.data().labelRules) { labelRules = snap.data().labelRules; } }
-    async function saveLabelRules(){ if (!window._user) { saveToLocalStorage(); return; } const ref = doc(db, 'users', window._user.uid); await setDoc(ref, { labelRules }, { merge: true }); }
+    async function loadLabelRules(){
+      if (!window._user) return;
+      const ref = doc(db, 'users', window._user.uid);
+      const snap = await getDoc(ref);
+      if (snap.exists() && snap.data().labelRules) { labelRules = snap.data().labelRules; }
+    }
+    async function saveLabelRules(){
+      if (!window._user) { saveToLocalStorage(); return; }
+      const ref = doc(db, 'users', window._user.uid);
+      await setDoc(ref, { labelRules }, { merge: true });
+    }
 
+    // ---------- UI ----------
     function renderCategoryPills() {
       expenseCategoryPillsEl.innerHTML = '';
       userCategories.forEach(cat => {
-        const pill = document.createElement('button'); pill.className = 'category-pill'; pill.textContent = cat; pill.dataset.category = cat;
-        pill.addEventListener('click', () => { document.querySelectorAll('.category-pill').forEach(p => p.classList.remove('selected')); pill.classList.add('selected'); selectedCategory = cat; });
+        const pill = document.createElement('button');
+        pill.className = 'category-pill';
+        pill.textContent = cat;
+        pill.dataset.category = cat;
+        pill.addEventListener('click', () => {
+          document.querySelectorAll('.category-pill').forEach(p => p.classList.remove('selected'));
+          pill.classList.add('selected');
+          selectedCategory = cat;
+        });
         expenseCategoryPillsEl.appendChild(pill);
       });
     }
@@ -389,7 +425,8 @@
     function renderCategoryManager() {
       categoryList.innerHTML = '';
       userCategories.forEach((cat, idx) => {
-        const row = document.createElement('div'); row.className = 'flex items-center justify-between py-2';
+        const row = document.createElement('div');
+        row.className = 'flex items-center justify-between py-2';
         row.innerHTML = `
           <input class="flex-1 mr-3 border rounded px-3 py-2" value="${cat.replace(/\"/g, '&quot;')}" />
           <button class="btn btn-secondary mr-2" data-action="up" data-idx="${idx}">↑</button>
@@ -400,13 +437,25 @@
     }
 
     btnManageCategories.onclick = () => { renderCategoryManager(); dlgCategories.showModal(); };
-    btnAddCategory.onclick = async () => { const v = (newCategoryInput.value||'').trim(); if (!v) return; if (!userCategories.includes(v)) userCategories.push(v); newCategoryInput.value = ''; await saveUserCategories(); renderCategoryPills(); renderCategoryManager(); };
+    btnAddCategory.onclick = async () => {
+      const v = (newCategoryInput.value||'').trim();
+      if (!v) return;
+      if (!userCategories.includes(v)) userCategories.push(v);
+      newCategoryInput.value = '';
+      await saveUserCategories();
+      renderCategoryPills();
+      renderCategoryManager();
+    };
     categoryList.addEventListener('click', async (e) => {
-      const btn = e.target.closest('button'); if (!btn) return; const idx = parseInt(btn.dataset.idx, 10); const action = btn.dataset.action;
+      const btn = e.target.closest('button'); if (!btn) return;
+      const idx = parseInt(btn.dataset.idx, 10);
+      const action = btn.dataset.action;
       if (action === 'del') userCategories.splice(idx,1);
       if (action === 'up' && idx>0) [userCategories[idx-1], userCategories[idx]] = [userCategories[idx], userCategories[idx-1]];
       if (action === 'down' && idx<userCategories.length-1) [userCategories[idx+1], userCategories[idx]] = [userCategories[idx], userCategories[idx+1]];
-      await saveUserCategories(); renderCategoryPills(); renderCategoryManager();
+      await saveUserCategories();
+      renderCategoryPills();
+      renderCategoryManager();
     });
 
     function updateUI() {
@@ -440,18 +489,21 @@
       renderPieChart(monthData.expenses);
       renderTemporalChart(monthData.expenses);
 
-      if (window._user) { saveMonthToFirestore(monthKey); saveLabelRules(); } else { saveToLocalStorage(); }
+      if (window._user) { saveMonthToFirestore(monthKey); saveLabelRules(); }
+      else { saveToLocalStorage(); }
     }
 
     function renderIncomeList(incomes){
-      incomeListEl.innerHTML = incomes.length===0 ? '<p class="text-gray-500">Aucun revenu ajouté.</p>' : incomes.map(income=>`
-        <div class="flex justify-between items-center p-2 bg-gray-50 rounded">
-          <p class="font-medium text-gray-800">${income.comment ? income.comment.replace(/</g,'&lt;') : '<i>Aucun commentaire</i>'}</p>
-          <div class="flex items-center gap-4">
-            <span class="font-semibold text-green-600">${income.amount.toFixed(2)} €</span>
-            <button class="delete-btn text-gray-400 hover:text-red-500" data-id="${income.id}" data-type="income">&times;</button>
-          </div>
-        </div>`).join('');
+      incomeListEl.innerHTML = incomes.length===0
+        ? '<p class="text-gray-500">Aucun revenu ajouté.</p>'
+        : incomes.map(income=>`
+          <div class="flex justify-between items-center p-2 bg-gray-50 rounded">
+            <p class="font-medium text-gray-800">${income.comment ? income.comment.replace(/</g,'&lt;') : '<i>Aucun commentaire</i>'}</p>
+            <div class="flex items-center gap-4">
+              <span class="font-semibold text-green-600">${income.amount.toFixed(2)} €</span>
+              <button class="delete-btn text-gray-400 hover:text-red-500" data-id="${income.id}" data-type="income">&times;</button>
+            </div>
+          </div>`).join('');
     }
 
     function renderExpenseList(expenses){
@@ -478,21 +530,39 @@
       const grouped = expenses.reduce((acc,e)=>{ acc[e.category]=(acc[e.category]||0)+e.amount; return acc; },{});
       if (expensesChart) expensesChart.destroy();
       const hasData = Object.keys(grouped).length>0;
-      expensesChart = new Chart(expensesCtx, { type:'doughnut', data:{ labels: hasData? Object.keys(grouped): ['Aucune dépense'], datasets:[{ data: hasData? Object.values(grouped): [1], borderColor:'#fff', borderWidth:2 }]}, options:{ responsive:true, plugins:{ legend:{ display:hasData, position:'top' } }, events: hasData? ['mousemove','mouseout','click','touchstart','touchmove']: [] } });
+      expensesChart = new Chart(expensesCtx, {
+        type:'doughnut',
+        data:{ labels: hasData? Object.keys(grouped): ['Aucune dépense'],
+               datasets:[{ data: hasData? Object.values(grouped): [1], borderColor:'#fff', borderWidth:2 }]},
+        options:{ responsive:true, plugins:{ legend:{ display:hasData, position:'top' } },
+                  events: hasData? ['mousemove','mouseout','click','touchstart','touchmove']: [] }
+      });
     }
 
     function renderTemporalChart(expenses){
       if (temporalExpensesChart) temporalExpensesChart.destroy();
       if (expenses.length < 2) {
-        temporalExpensesChart = new Chart(temporalCtx, { type:'line', data:{ labels:['Début du mois'], datasets:[{ label:'Dépenses cumulées', data:[0] }]}, options:{ responsive:true, plugins:{ legend:{ display:false }, title:{ display:true, text:'Pas assez de données pour afficher une évolution', font:{ size:14 } } }, scales:{ y:{ beginAtZero:true, ticks:{ callback:v=>`${v} €` } } } } });
+        temporalExpensesChart = new Chart(temporalCtx, {
+          type:'line',
+          data:{ labels:['Début du mois'], datasets:[{ label:'Dépenses cumulées', data:[0] }]},
+          options:{ responsive:true, plugins:{ legend:{ display:false }, title:{ display:true, text:'Pas assez de données pour afficher une évolution', font:{ size:14 } } },
+                    scales:{ y:{ beginAtZero:true, ticks:{ callback:v=>`${v} €` } } } }
+        });
         return;
       }
       const sorted = [...expenses].sort((a,b)=>a.id-b.id);
       const labels = [], data = [];
-      let cum = 0; sorted.forEach(e=>{ cum += e.amount; labels.push(new Date(e.id).toLocaleDateString('fr-FR',{ day:'numeric', month:'short'})); data.push(cum); });
-      temporalExpensesChart = new Chart(temporalCtx, { type:'line', data:{ labels, datasets:[{ label:'Dépenses cumulées', data, fill:true, tension:.4 }]}, options:{ responsive:true, plugins:{ legend:{ display:false } }, scales:{ y:{ beginAtZero:true, ticks:{ callback:v=> v+' €' } } } } });
+      let cum = 0;
+      sorted.forEach(e=>{ cum += e.amount; labels.push(new Date(e.id).toLocaleDateString('fr-FR',{ day:'numeric', month:'short'})); data.push(cum); });
+      temporalExpensesChart = new Chart(temporalCtx, {
+        type:'line',
+        data:{ labels, datasets:[{ label:'Dépenses cumulées', data, fill:true, tension:.4 }]},
+        options:{ responsive:true, plugins:{ legend:{ display:false } },
+                  scales:{ y:{ beginAtZero:true, ticks:{ callback:v=> v+' €' } } } }
+      });
     }
 
+    // ---------- Events ----------
     prevMonthBtn.addEventListener('click', ()=>{ currentMonth.setMonth(currentMonth.getMonth()-1); updateUI(); });
     nextMonthBtn.addEventListener('click', ()=>{ currentMonth.setMonth(currentMonth.getMonth()+1); updateUI(); });
     startingBalanceEl.addEventListener('change', ()=>{ const mk=getMonthKey(currentMonth); appData[mk].startingBalance = parseFloat(startingBalanceEl.value)||0; updateUI(); });
@@ -504,7 +574,10 @@
       if (type==='income') {
         const amount = payload?.amount ?? parseFloat(incomeAmountEl.value);
         const comment = payload?.comment ?? (incomeCommentEl.value||'').trim();
-        if (!amount || amount<=0) { const el = incomeAmountEl; el.classList.add('border-red-500','ring-2','ring-red-200'); setTimeout(()=>el.classList.remove('border-red-500','ring-2','ring-red-200'),2000); return; }
+        if (!amount || amount<=0) {
+          const el = incomeAmountEl; el.classList.add('border-red-500','ring-2','ring-red-200');
+          setTimeout(()=>el.classList.remove('border-red-500','ring-2','ring-red-200'),2000); return;
+        }
         const tx = { id: payload?.id || Date.now(), amount, comment };
         appData[mk].incomes.push(tx);
         if (!payload) { incomeAmountEl.value=''; incomeCommentEl.value=''; }
@@ -512,10 +585,18 @@
         const amount = payload?.amount ?? parseFloat(expenseAmountEl.value);
         const comment = payload?.comment ?? (expenseCommentEl.value||'').trim();
         const category = payload?.category ?? selectedCategory;
-        if (!amount || amount<=0 || !category){ const el = expenseAmountEl; if(!amount||amount<=0){ el.classList.add('border-red-500','ring-2','ring-red-200'); setTimeout(()=>el.classList.remove('border-red-500','ring-2','ring-red-200'),2000);} if (!category){ expenseCategoryPillsEl.classList.add('p-2','rounded-lg','ring-2','ring-red-500'); setTimeout(()=>expenseCategoryPillsEl.classList.remove('p-2','rounded-lg','ring-2','ring-red-500'),2000);} return; }
+        if (!amount || amount<=0 || !category){
+          const el = expenseAmountEl;
+          if(!amount||amount<=0){ el.classList.add('border-red-500','ring-2','ring-red-200'); setTimeout(()=>el.classList.remove('border-red-500','ring-2','ring-red-200'),2000); }
+          if (!category){ expenseCategoryPillsEl.classList.add('p-2','rounded-lg','ring-2','ring-red-500'); setTimeout(()=>expenseCategoryPillsEl.classList.remove('p-2','rounded-lg','ring-2','ring-red-500'),2000); }
+          return;
+        }
         const tx = { id: payload?.id || Date.now(), amount, comment, category };
         appData[mk].expenses.push(tx);
-        if (!payload) { document.querySelectorAll('.category-pill.selected').forEach(p=>p.classList.remove('selected')); selectedCategory=null; expenseAmountEl.value=''; expenseCommentEl.value=''; }
+        if (!payload) {
+          document.querySelectorAll('.category-pill.selected').forEach(p=>p.classList.remove('selected'));
+          selectedCategory=null; expenseAmountEl.value=''; expenseCommentEl.value='';
+        }
       }
       updateUI();
     }
@@ -526,132 +607,241 @@
     ;[expenseAmountEl,expenseCommentEl].forEach(el=>el.addEventListener('keydown',(e)=>{ if(e.key==='Enter') addTransaction('expense'); }));
 
     document.body.addEventListener('click', (e)=>{
-      const btn = e.target.closest('.delete-btn'); if (!btn) return; const { id, type } = btn.dataset; const mk = getMonthKey(currentMonth); const key = type==='income' ? 'incomes' : 'expenses'; appData[mk][key] = appData[mk][key].filter(i=> i.id !== parseInt(id)); updateUI();
+      const btn = e.target.closest('.delete-btn'); if (!btn) return;
+      const { id, type } = btn.dataset;
+      const mk = getMonthKey(currentMonth);
+      const key = type==='income' ? 'incomes' : 'expenses';
+      appData[mk][key] = appData[mk][key].filter(i=> i.id !== parseInt(id));
+      updateUI();
     });
 
+    // ---------- CSV Export/Import ----------
     exportCsvBtn.addEventListener('click', ()=>{
       const rows = [['month','type','amount','category','comment','id']];
-      Object.entries(appData).forEach(([mk, data])=>{ data.incomes.forEach(i=> rows.push([mk,'income',i.amount,'',i.comment||'', i.id])); data.expenses.forEach(x=> rows.push([mk,'expense',x.amount,x.category||'',x.comment||'', x.id])); });
+      Object.entries(appData).forEach(([mk, data])=>{
+        data.incomes.forEach(i=> rows.push([mk,'income',i.amount,'',i.comment||'', i.id]));
+        data.expenses.forEach(x=> rows.push([mk,'expense',x.amount,x.category||'',x.comment||'', x.id]));
+      });
       const csv = rows.map(r=> r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(',')).join('\n');
-      const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'budget_data.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+      const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'budget_data.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
     });
 
     importCsvBtn.addEventListener('click', ()=> csvFileInput.click());
     csvFileInput.addEventListener('change', async (e)=>{
-      const file = e.target.files?.[0]; if (!file) return; const text = await file.text();
-      const lines = text.split(/\r?\n/).filter(Boolean); const header = lines.shift(); const cols = header.split(',').map(s=> s.replace(/^\"|\"$/g,'').toLowerCase()); const idx = (name)=> cols.indexOf(name); const nextData = {};
-      for (const line of lines){ const parts = line.match(/\"(?:[^\"]|\"\")*\"|[^,]+/g)?.map(s=> s.replace(/^\"|\"$/g,'').replace(/\"\"/g,'"')) || []; const mk = parts[idx('month')]; const type = parts[idx('type')]; const amount = parseFloat(parts[idx('amount')]||'0')||0; const category = parts[idx('category')]||''; const comment = parts[idx('comment')]||''; const id = parseInt(parts[idx('id')]||Date.now()); if (!nextData[mk]) nextData[mk] = { startingBalance: 0, incomes: [], expenses: [] }; if (type==='income') nextData[mk].incomes.push({ id, amount, comment }); else if (type==='expense') nextData[mk].expenses.push({ id, amount, comment, category }); }
-      appData = nextData; if (window._user){ await Promise.all(Object.keys(appData).map(mk=> setDoc(doc(db,'users',window._user.uid,'months',mk), appData[mk]))); } else { saveToLocalStorage(); }
-      csvFileInput.value = ''; updateUI(); alert('Import terminé.');
+      const file = e.target.files?.[0]; if (!file) return;
+      const text = await file.text();
+      const lines = text.split(/\r?\n/).filter(Boolean);
+      const header = lines.shift();
+      const cols = header.split(',').map(s=> s.replace(/^\"|\"$/g,'').toLowerCase());
+      const idx = (name)=> cols.indexOf(name);
+      const nextData = {};
+      for (const line of lines){
+        const parts = line.match(/\"(?:[^\"]|\"\")*\"|[^,]+/g)?.map(s=> s.replace(/^\"|\"$/g,'').replace(/\"\"/g,'"')) || [];
+        const mk = parts[idx('month')];
+        const type = parts[idx('type')];
+        const amount = parseFloat(parts[idx('amount')]||'0')||0;
+        const category = parts[idx('category')]||'';
+        const comment = parts[idx('comment')]||'';
+        const id = parseInt(parts[idx('id')]||Date.now());
+        if (!nextData[mk]) nextData[mk] = { startingBalance: 0, incomes: [], expenses: [] };
+        if (type==='income') nextData[mk].incomes.push({ id, amount, comment });
+        else if (type==='expense') nextData[mk].expenses.push({ id, amount, comment, category });
+      }
+      appData = nextData;
+      if (window._user){
+        await Promise.all(Object.keys(appData).map(mk=> setDoc(doc(db,'users',window._user.uid,'months',mk), appData[mk])));
+      } else {
+        saveToLocalStorage();
+      }
+      csvFileInput.value = '';
+      updateUI();
+      alert('Import terminé.');
     });
 
-    exportChartBtn.addEventListener('click', ()=>{ const url = document.getElementById('expensesChart').toDataURL('image/png'); const a = document.createElement('a'); a.href = url; a.download = 'repartition_depenses.png'; a.click(); });
-
-    // -------- PDF IMPORT --------
-btnParsePdf.addEventListener('click', async () => {
-  try {
-    const file = pdfFileInput.files?.[0];
-    if (!file) { alert('Choisis un fichier PDF.'); return; }
-
-    // 1) Lire le fichier -> ArrayBuffer
-    const arrayBuffer = await file.arrayBuffer();
-
-    // 2) pdf.js (v3 UMD) aime bien un Uint8Array
-    const data = new Uint8Array(arrayBuffer);
-
-    // 3) Charger le PDF
-    const PDFJS = window.pdfjsLib;
-    if (!PDFJS) throw new Error('pdfjsLib non défini (pdf.min.js non chargé)');
-    const pdf = await PDFJS.getDocument({ data }).promise;
-
-    // 4) Extraire le texte de chaque page
-    let allItems = [];
-    for (let p = 1; p <= pdf.numPages; p++) {
-      const page = await pdf.getPage(p);
-      const content = await page.getTextContent();
-      // on garde le texte + positions
-      allItems.push(...content.items.map(i => ({
-        s: i.str, x: i.transform[4], y: i.transform[5]
-      })));
-    }
-
-    // 5) Parser en lignes puis transactions
-    const lines = groupIntoLines(allItems);
-    const txs = extractTransactions(lines);
-
-    if (!txs.length) {
-      console.warn('[PDF] Aucune opération détectée. Dump de quelques lignes:');
-      console.warn(lines.slice(0, 50)); // aide debug
-      alert("Aucune opération détectée.\nVérifie que c'est bien un relevé 'texte' (pas un scan).");
-      return;
-    }
-
-    // 6) Afficher la modale de revue
-    importRowsTbody.innerHTML = '';
-    txs.forEach((t, idx) => {
-      const cat = suggestCategory(t);
-      const tr = document.createElement('tr');
-      tr.className = 'border-t';
-      tr.innerHTML = `
-        <td class="py-2 whitespace-nowrap">${t.dateStr}</td>
-        <td class="py-2">${escapeHtml(t.label)}</td>
-        <td class="py-2 whitespace-nowrap ${t.amount<0?'text-red-600':'text-green-700'}">
-          ${t.amount.toFixed(2)} €
-        </td>
-        <td class="py-2">
-          <select class="border rounded px-2 py-1 text-sm w-full">
-            ${userCategories.map(c => `<option ${c===cat?'selected':''}>${c}</option>`).join('')}
-          </select>
-        </td>
-        <td class="py-2">
-          <input type="text" class="border rounded px-2 py-1 text-sm w-full" placeholder="Commentaire" />
-        </td>`;
-      tr.dataset.idx = String(idx);
-      importRowsTbody.appendChild(tr);
+    exportChartBtn.addEventListener('click', ()=>{
+      const url = document.getElementById('expensesChart').toDataURL('image/png');
+      const a = document.createElement('a'); a.href = url; a.download = 'repartition_depenses.png'; a.click();
     });
 
-    dlgImport.showModal();
+    // ---------- OFX IMPORT ----------
+    btnParseOfx.addEventListener('click', async () => {
+      try {
+        const file = ofxFileInput.files?.[0];
+        if (!file) { alert('Choisis un fichier OFX.'); return; }
+        const text = await file.text();
+        const txs = parseOFX(text);
+        if (!txs.length) { alert('Aucune opération trouvée dans ce OFX.'); return; }
 
-    btnValidateImport.onclick = (e) => {
-      e.preventDefault();
-      const rows = [...importRowsTbody.querySelectorAll('tr')];
-      rows.forEach(row => {
-        const i = parseInt(row.dataset.idx, 10);
-        const tx = txs[i];
-        const sel = row.querySelector('select');
-        const inp = row.querySelector('input');
-        const chosenCat = sel.value;
-        const comment = inp.value || tx.label;
+        // Table de revue
+        importRowsTbody.innerHTML = '';
+        txs.forEach((t, idx) => {
+          const cat = suggestCategory(t);
+          const tr = document.createElement('tr');
+          tr.className = 'border-t';
+          tr.innerHTML = `
+            <td class="py-2 whitespace-nowrap">${t.dateStr}</td>
+            <td class="py-2">${escapeHtml(t.label)}</td>
+            <td class="py-2 whitespace-nowrap">
+              <input type="number" step="0.01" class="border rounded px-2 py-1 text-sm w-32 amount-input" value="${t.amount.toFixed(2)}" />
+            </td>
+            <td class="py-2">
+              <select class="border rounded px-2 py-1 text-sm w-full">
+                ${userCategories.map(c => `<option ${c===cat?'selected':''}>${c}</option>`).join('')}
+              </select>
+            </td>
+            <td class="py-2">
+              <input type="text" class="border rounded px-2 py-1 text-sm w-full comment-input" placeholder="Commentaire" />
+            </td>
+            <td class="py-2">
+              <div class="flex gap-2">
+                <button type="button" class="btn btn-secondary btn-del-row" title="Supprimer">✕</button>
+                <button type="button" class="btn btn-secondary btn-add-row" title="Ajouter une ligne similaire">+ Ajouter</button>
+              </div>
+            </td>`;
+          tr.dataset.idx = String(idx);
+          tr.dataset.manual = '0';
+          importRowsTbody.appendChild(tr);
+        });
 
-        const key = normalizeLabel(tx.label);
-        if (!labelRules[key]) labelRules[key] = chosenCat;
+        // Actions (supprimer / dupliquer)
+        importRowsTbody.addEventListener('click', (ev) => {
+          const tr = ev.target.closest('tr'); if (!tr) return;
+          if (ev.target.closest('.btn-del-row')) { tr.remove(); return; }
+          if (ev.target.closest('.btn-add-row')) {
+            const clone = tr.cloneNode(true);
+            clone.dataset.manual = '1';
+            const amt = clone.querySelector('.amount-input'); if (amt) amt.value='';
+            const com = clone.querySelector('.comment-input'); if (com) com.value='';
+            importRowsTbody.insertBefore(clone, tr.nextSibling);
+            return;
+          }
+        }, { once: true });
 
-        const when = tx.date;
-        const mk = getMonthKey(when);
-        const id = +when;
-        if (tx.amount < 0) {
-          addTransaction('expense', { id, amount: Math.abs(tx.amount), comment, category: chosenCat, monthKey: mk });
-        } else {
-          addTransaction('income', { id, amount: tx.amount, comment, monthKey: mk });
-        }
+        dlgImport.showModal();
+
+        // Validation : commentaire = uniquement ce que tu saisis (jamais le libellé)
+        btnValidateImport.onclick = (e) => {
+          e.preventDefault();
+          const rows = [...importRowsTbody.querySelectorAll('tr')];
+          rows.forEach(row => {
+            const i = parseInt(row.dataset.idx || '-1', 10);
+            const baseTx = (i>=0 && txs[i]) ? txs[i] : null;
+
+            const amountInput = row.querySelector('.amount-input');
+            const sel = row.querySelector('select');
+            const commentInput = row.querySelector('.comment-input');
+
+            const amountVal = parseFloat((amountInput?.value || '').replace(',', '.'));
+            if (isNaN(amountVal)) return;
+
+            const chosenCat = sel ? sel.value : 'Autre';
+            const comment = (commentInput?.value || '').trim(); // ⚠️ pas de libellé par défaut
+
+            const when = baseTx ? baseTx.date : new Date();
+            const mk = getMonthKey(when);
+            const id = +when;
+
+            // Règle auto uniquement pour les lignes issues du parsing OFX
+            if (baseTx) {
+              const key = normalizeLabel(baseTx.label);
+              if (key && !labelRules[key]) labelRules[key] = chosenCat;
+            }
+
+            if (amountVal < 0) {
+              addTransaction('expense', {
+                id,
+                amount: Math.abs(amountVal),
+                comment,
+                category: chosenCat,
+                monthKey: mk
+              });
+            } else {
+              addTransaction('income', {
+                id,
+                amount: amountVal,
+                comment,
+                monthKey: mk
+              });
+            }
+          });
+          dlgImport.close();
+        };
+
+      } catch (e) {
+        console.error('[OFX] erreur:', e);
+        alert('Erreur OFX: ' + (e?.message || e));
+      }
+    });
+
+    // ---------- Utils ----------
+    function escapeHtml(s){ return (s||'').replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c])); }
+
+    function parseOFX(text){
+      // Supporte OFX XML (<STMTTRN>...</STMTTRN>) et SGML (tags sans </TAG>)
+      const blocks = [];
+      const xmlBlocks = text.match(/<STMTTRN>[\s\S]*?<\/STMTTRN>/gi);
+      if (xmlBlocks) {
+        blocks.push(...xmlBlocks);
+      } else {
+        const rg = /<STMTTRN>([\s\\S]*?)(?=<STMTTRN>|<\/BANKTRANLIST>|<\/CREDITCARDMSGSRSV1>|$)/gi;
+        let m; while ((m = rg.exec(text))) blocks.push(m[0]);
+      }
+
+      const out = [];
+      const first8 = (s)=> (s||'').replace(/[^0-9]/g,'').slice(0,8);
+
+      blocks.forEach(b=>{
+        const d = (b.match(/<DTPOSTED>([^<\n]+)/i)||[])[1] || '';
+        const a = (b.match(/<TRNAMT>([^<\n]+)/i)||[])[1] || '';
+        const name = (b.match(/<NAME>([^\n<]+)/i)||[])[1] || '';
+        const memo = (b.match(/<MEMO>([^\n<]+)/i)||[])[1] || '';
+        const ymd = first8(d);
+        if (!ymd || !a) return;
+
+        const yyyy = +ymd.slice(0,4), mm = +ymd.slice(4,6)-1, dd = +ymd.slice(6,8);
+        const date = new Date(yyyy, mm, dd);
+        const amount = parseFloat(a.replace(',', '.')) || 0;
+        const label = (name || memo || '').trim();
+
+        out.push({ date, dateStr: date.toLocaleDateString('fr-FR'), label, amount });
       });
-      dlgImport.close();
-    };
 
-  } catch (err) {
-    console.error('[PDF] erreur:', err);
-    alert('Erreur PDF: ' + (err?.message || err));
-  }
-});
+      return out;
+    }
 
+    function normalizeLabel(s){
+      return (s||'').toUpperCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+        .replace(/[^A-Z0-9 ]/g,'')
+        .replace(/\s+/g,' ')
+        .trim();
+    }
 
-    function escapeHtml(s){ return (s||'').replace(/[&<>\"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c])); }
-    function groupIntoLines(items){ const byY = {}; items.forEach(it=>{ const y = Math.round(it.y/2); (byY[y] ||= []).push(it); }); const ys = Object.keys(byY).map(Number).sort((a,b)=>b-a); const lines = ys.map(y=> byY[y].sort((a,b)=>a.x-b.x).map(i=>i.s).join(' ').replace(/\s+/g,' ').trim()).filter(Boolean); return lines; }
-    function extractTransactions(lines){ const txs = []; const dateRe = /(?<d>\b\d{2}\/\d{2}(?:\/\d{2,4})?)/; const amtRe = /([+-]?\d{1,3}(?: \d{3})*,\d{2})\b/; const yearNow = new Date().getFullYear(); for (const ln of lines){ const dM = ln.match(dateRe); const aM = ln.match(amtRe); if (!dM || !aM) continue; const dateStr = dM.groups?.d || dM[0]; let label = ln.replace(dateStr, '').replace(aM[0],'').trim(); label = label.replace(/^[-–—\s:]+/, '').replace(/\s{2,}/g,' '); const amt = parseFloat(aM[0].replace(/\./g,'').replace(/ /g,'').replace(',','.')); const sign = ln.includes('-'+aM[0].replace('+','').replace('-','')) ? -1 : (ln.includes('-')? -1 : 1); const amount = sign<0 ? -Math.abs(amt) : Math.abs(amt); const parts = dateStr.split('/').map(n=>parseInt(n,10)); const [dd, mm, yy] = parts.length===3 ? parts : [parts[0], parts[1], yearNow]; const fullYear = (yy<100) ? (2000+yy) : yy; const date = new Date(fullYear, mm-1, dd); if (/^solde|^total|^report|^nouveau/i.test(label)) continue; txs.push({ date, dateStr: date.toLocaleDateString('fr-FR'), label, amount }); } return txs; }
-    function normalizeLabel(s){ return (s||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9 ]/g,'').replace(/\s+/g,' ').trim(); }
-    function suggestCategory(tx){ const key = normalizeLabel(tx.label); if (labelRules[key]) return labelRules[key]; const L = key; const kws = [ ['Alimentation (courses)', /CARREFOUR|INTERMARCHE|LIDL|ALDI|AUCHAN|MONOPRIX|LECLERC|PICARD/], ['Restaurant', /UBER\s*EATS|DELIVEROO|MC ?DONALD|KFC|BURGER KING|PIZZA|BOULANGERIE|RESTAURANT|BISTRO|CAFE/], ['Transports', /SNCF|RATP|BILLET|UBER\b|BOLT\b|TOTAL|ESSO|AUTOROUTE|PEAGE|T\+|AIR FRANCE|RYANAIR|TRANSILIEN/], ['Factures récurrentes', /ELECTRICITE|EDF|ENGIE|EAU|SFR|FREE|ORANGE|BOUYGUES|INTERNET|ASSURANCE|AMAZON PRIME/], ['Abonnements', /SPOTIFY|NETFLIX|YOUTUBE|APPLE MUSIC|GOOGLE|MICROSOFT|ADOBE|SUBSCRIPTION|ABONNEMENT/], ['Loyer', /LOYER|LOCATION|BAIL|GARANTIE LOCATIVE/], ['Santé', /PHARMACIE|MEDECIN|DOCTOLIB|DENTISTE|HOPITAL|LABO/], ['Loisirs & Sorties', /FNAC|CULTURA|JEU|CINEMA|THEATRE|PARC|MUSEE/], ['Vêtements & Shopping', /ZARA|H&M|DECATHLON|GO SPORT|NIKE|ADIDAS|GALERIES LAFAYETTE|PRINTEMPS/], ['Dépenses Vacances', /HOTEL|BOOKING|AIRBNB|HOSTEL|CAMPING|VOYAGE/] ]; for (const [cat, re] of kws){ if (re.test(L)) return cat; } return 'Autre'; }
+    function suggestCategory(tx){
+      const key = normalizeLabel(tx.label);
+      if (labelRules[key]) return labelRules[key];
+      const L = key;
+      const kws = [
+        ['Alimentation (courses)', /CARREFOUR|INTERMARCHE|LIDL|ALDI|AUCHAN|MONOPRIX|LECLERC|PICARD/],
+        ['Restaurant', /UBER\s*EATS|DELIVEROO|MC ?DONALD|KFC|BURGER KING|PIZZA|BOULANGERIE|RESTAURANT|BISTRO|CAFE/],
+        ['Transports', /SNCF|RATP|BILLET|UBER\b|BOLT\b|TOTAL|ESSO|AUTOROUTE|PEAGE|T\+|AIR FRANCE|RYANAIR|TRANSILIEN/],
+        ['Factures récurrentes', /ELECTRICITE|EDF|ENGIE|EAU|SFR|FREE|ORANGE|BOUYGUES|INTERNET|ASSURANCE|AMAZON PRIME/],
+        ['Abonnements', /SPOTIFY|NETFLIX|YOUTUBE|APPLE MUSIC|GOOGLE|MICROSOFT|ADOBE|SUBSCRIPTION|ABONNEMENT/],
+        ['Loyer', /LOYER|LOCATION|BAIL|GARANTIE LOCATIVE/],
+        ['Santé', /PHARMACIE|MEDECIN|DOCTOLIB|DENTISTE|HOPITAL|LABO/],
+        ['Loisirs & Sorties', /FNAC|CULTURA|JEU|CINEMA|THEATRE|PARC|MUSEE/],
+        ['Vêtements & Shopping', /ZARA|H&M|DECATHLON|GO SPORT|NIKE|ADIDAS|GALERIES LAFAYETTE|PRINTEMPS/],
+        ['Dépenses Vacances', /HOTEL|BOOKING|AIRBNB|HOSTEL|CAMPING|VOYAGE/]
+      ];
+      for (const [cat, re] of kws){ if (re.test(L)) return cat; }
+      return 'Autre';
+    }
 
-    loadFromLocalStorage(); updateUI();
+    // ---------- Init ----------
+    loadFromLocalStorage();
+    updateUI();
   </script>
 </body>
 </html>
