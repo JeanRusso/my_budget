@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gestion de Budget – Firebase Sync</title>
+  <title>Gestion de Budget – Firebase Sync + Import PDF</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -64,7 +64,9 @@
         <div class="card p-6">
           <div class="flex items-center justify-between mb-4">
             <h3 class="text-xl font-semibold text-gray-700">Ajouter une dépense</h3>
-            <button id="btn-manage-categories" class="btn btn-secondary text-sm">Gérer les catégories</button>
+            <div class="flex items-center gap-2">
+              <button id="btn-manage-categories" class="btn btn-secondary text-sm">Gérer les catégories</button>
+            </div>
           </div>
           <div class="space-y-4">
             <div>
@@ -97,13 +99,20 @@
             <button id="add-income-btn" class="btn btn-primary w-full">Ajouter le revenu</button>
           </div>
         </div>
-        <!-- Données -->
+        <!-- Données & Import PDF -->
         <div class="card p-6">
           <h3 class="text-xl font-semibold mb-4 text-gray-700">Données</h3>
           <div class="space-y-3">
             <button id="export-csv-btn" class="btn btn-secondary w-full">Exporter toutes les données (CSV)</button>
             <button id="import-csv-btn" class="btn btn-secondary w-full">Importer et remplacer les données (CSV)</button>
             <input type="file" id="csv-file-input" class="hidden" accept=".csv" />
+            <hr class="my-3">
+            <h4 class="text-lg font-semibold text-gray-700">Importer un relevé Caisse d'Épargne (PDF)</h4>
+            <p class="text-sm text-gray-500">Mettre <code>pdf.min.js</code> et <code>pdf.worker.min.js</code> à côté de ce fichier. (voir lignes de config dans le code)</p>
+            <div class="flex items-center gap-2">
+              <input type="file" id="pdf-file-input" accept="application/pdf" class="w-full" />
+            </div>
+            <button id="btn-parse-pdf" class="btn btn-primary w-full">Analyser le PDF</button>
           </div>
         </div>
       </div>
@@ -175,69 +184,78 @@
       </form>
     </dialog>
 
-    <!-- Section Analyse IA (inchangée pour l'instant) -->
+    <!-- Modale de revue d'import PDF -->
+    <dialog id="dlg-import" class="rounded-2xl p-0 w-full max-w-5xl">
+      <form method="dialog" class="card p-0">
+        <div class="p-6 border-b">
+          <h3 class="text-xl font-semibold text-gray-800">Revue des opérations détectées</h3>
+          <p class="text-sm text-gray-500">Corrige les catégories si besoin. Les choix seront mémorisés pour les libellés identiques.</p>
+        </div>
+        <div class="p-6 max-h-[70vh] overflow-y-auto">
+          <table class="w-full text-sm">
+            <thead class="text-left text-gray-600">
+              <tr>
+                <th class="py-2">Date</th>
+                <th class="py-2">Libellé</th>
+                <th class="py-2">Montant</th>
+                <th class="py-2">Catégorie suggérée</th>
+                <th class="py-2">Commentaire (opt.)</th>
+              </tr>
+            </thead>
+            <tbody id="import-rows"></tbody>
+          </table>
+        </div>
+        <div class="p-4 bg-gray-50 flex justify-end gap-2">
+          <button class="btn btn-secondary" value="cancel">Annuler</button>
+          <button id="btn-validate-import" class="btn btn-primary" value="default">Tout valider</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Section Analyse IA (placeholder) -->
     <section class="mt-8">
       <div class="card p-6">
         <h3 class="text-2xl font-semibold mb-4 text-gray-700">Analyse et Suggestions d'Économies par IA</h3>
-        <p class="text-gray-600 mb-4">Fonctionnement à venir (prompts & intégration GitHub Actions possible).</p>
+        <p class="text-gray-600 mb-4">Fonctionnement à venir.</p>
       </div>
     </section>
   </div>
 
+  <!-- pdf.js local (mettre les fichiers à côté) -->
+  <script src="./pdf.js"></script>
+  <script>
+    if (window['pdfjsLib']) {
+      try { pdfjsLib.GlobalWorkerOptions.workerSrc = './pdf.worker.js'; } catch (e) {}
+    }
+  </script>
+
   <!-- App JS + Firebase (module) -->
   <script type="module">
-    // ---------- Firebase imports ----------
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-
     import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInAnonymously, signOut } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
     import { getFirestore, doc, getDoc, setDoc, collection, getDocs } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
-    // ---------- Firebase config (REMPLACE ces valeurs par celles de ton projet) ----------
-  // Your web app's Firebase configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyD4f5nOJUv_DhFSuRsYxCIxsU8lEmHKb_U",
+      authDomain: "budget-app-71fa3.firebaseapp.com",
+      projectId: "budget-app-71fa3",
+      storageBucket: "budget-app-71fa3.firebasestorage.app",
+      messagingSenderId: "626176730343",
+      appId: "1:626176730343:web:233508ab9c71ff16596e42"
+    };
 
-  const firebaseConfig = {
-
-    apiKey: "AIzaSyD4f5nOJUv_DhFSuRsYxCIxsU8lEmHKb_U",
-
-    authDomain: "budget-app-71fa3.firebaseapp.com",
-
-    projectId: "budget-app-71fa3",
-
-    storageBucket: "budget-app-71fa3.firebasestorage.app",
-
-    messagingSenderId: "626176730343",
-
-    appId: "1:626176730343:web:233508ab9c71ff16596e42"
-
-  };
-
-
-
-
-    // ---------- App State ----------
     const SAVINGS_GOAL = 1400;
     let currentMonth = new Date();
-    let appData = {}; // { 'YYYY-MM': { startingBalance, incomes[], expenses[] } }
+    let appData = {};
     let expensesChart, temporalExpensesChart;
     let selectedCategory = null;
+
+    let labelRules = {};
+
     let userCategories = [
-      'Alimentation (courses)',
-      'Restaurant',
-      'Transports',
-      'Factures récurrentes',
-      'Abonnements',
-      'Loyer',
-      'Santé',
-      'Loisirs & Sorties',
-      'Vêtements & Shopping',
-      'Dépenses Mariage',
-      'Dépenses Vacances',
-      'Religion – denier du culte',
-      'Religion – week-end communauté',
-      'Autre'
+      'Alimentation (courses)', 'Restaurant', 'Transports', 'Factures récurrentes', 'Abonnements', 'Loyer', 'Santé', 'Loisirs & Sorties', 'Vêtements & Shopping', 'Dépenses Mariage', 'Dépenses Vacances', 'Religion – denier du culte', 'Religion – week-end communauté', 'Autre'
     ];
 
-    // ---------- DOM ----------
     const startingBalanceEl = document.getElementById('starting-balance');
     const currentMonthDisplay = document.getElementById('current-month-display');
     const prevMonthBtn = document.getElementById('prev-month-btn');
@@ -276,7 +294,12 @@
     const btnAddCategory = document.getElementById('btn-add-category');
     const categoryList = document.getElementById('category-list');
 
-    // ---------- Firebase init ----------
+    const pdfFileInput = document.getElementById('pdf-file-input');
+    const btnParsePdf = document.getElementById('btn-parse-pdf');
+    const dlgImport = document.getElementById('dlg-import');
+    const importRowsTbody = document.getElementById('import-rows');
+    const btnValidateImport = document.getElementById('btn-validate-import');
+
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
@@ -286,6 +309,7 @@
       updateAuthUI();
       if (user) {
         await loadUserCategories();
+        await loadLabelRules();
         await loadAllMonthsToMemory();
       } else {
         loadFromLocalStorage();
@@ -293,41 +317,30 @@
       updateUI();
     });
 
-    btnGoogle.onclick = async () => {
-      const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
-    };
+    btnGoogle.onclick = async () => { const provider = new GoogleAuthProvider(); await signInWithPopup(auth, provider); };
     btnAnon.onclick = async () => { await signInAnonymously(auth); };
     btnSignout.onclick = async () => { await signOut(auth); };
 
     function updateAuthUI() {
       if (window._user) {
         authStatus.textContent = window._user.isAnonymous ? 'Connecté (anonyme)' : `Connecté : ${window._user.email}`;
-        btnSignout.classList.remove('hidden');
-        btnGoogle.classList.add('hidden');
-        btnAnon.classList.add('hidden');
-        authWarning.classList.add('hidden');
+        btnSignout.classList.remove('hidden'); btnGoogle.classList.add('hidden'); btnAnon.classList.add('hidden'); authWarning.classList.add('hidden');
       } else {
-        authStatus.textContent = 'Non connecté';
-        btnSignout.classList.add('hidden');
-        btnGoogle.classList.remove('hidden');
-        btnAnon.classList.remove('hidden');
-        authWarning.classList.remove('hidden');
+        authStatus.textContent = 'Non connecté'; btnSignout.classList.add('hidden'); btnGoogle.classList.remove('hidden'); btnAnon.classList.remove('hidden'); authWarning.classList.remove('hidden');
       }
     }
 
-    // ---------- Helpers ----------
     const getMonthKey = (date) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`;
 
     function loadFromLocalStorage() {
-      const saved = localStorage.getItem('budgetAppData');
-      appData = saved ? JSON.parse(saved) : {};
-      const cats = localStorage.getItem('budgetCategories');
-      if (cats) userCategories = JSON.parse(cats);
+      const saved = localStorage.getItem('budgetAppData'); appData = saved ? JSON.parse(saved) : {};
+      const cats = localStorage.getItem('budgetCategories'); if (cats) userCategories = JSON.parse(cats);
+      const rules = localStorage.getItem('budgetLabelRules'); labelRules = rules ? JSON.parse(rules) : {};
     }
     function saveToLocalStorage() {
       localStorage.setItem('budgetAppData', JSON.stringify(appData));
       localStorage.setItem('budgetCategories', JSON.stringify(userCategories));
+      localStorage.setItem('budgetLabelRules', JSON.stringify(labelRules));
     }
 
     async function loadAllMonthsToMemory() {
@@ -336,9 +349,7 @@
       const monthsCol = collection(db, 'users', window._user.uid, 'months');
       const snap = await getDocs(monthsCol);
       snap.forEach(d => { appData[d.id] = d.data(); });
-      // Ensure current month exists
-      const mk = getMonthKey(currentMonth);
-      if (!appData[mk]) appData[mk] = { startingBalance: 0, incomes: [], expenses: [] };
+      const mk = getMonthKey(currentMonth); if (!appData[mk]) appData[mk] = { startingBalance: 0, incomes: [], expenses: [] };
     }
 
     async function saveMonthToFirestore(monthKey) {
@@ -351,12 +362,9 @@
       if (!window._user) return;
       const ref = doc(db, 'users', window._user.uid);
       const snap = await getDoc(ref);
-      if (snap.exists() && Array.isArray(snap.data().categories)) {
-        userCategories = snap.data().categories;
-      } else {
-        // seed defaults on first run
-        await setDoc(ref, { categories: userCategories }, { merge: true });
-      }
+      if (snap.exists()) {
+        const data = snap.data(); if (Array.isArray(data.categories)) userCategories = data.categories;
+      } else { await setDoc(ref, { categories: userCategories }, { merge: true }); }
     }
     async function saveUserCategories() {
       if (!window._user) { saveToLocalStorage(); return; }
@@ -364,19 +372,14 @@
       await setDoc(ref, { categories: userCategories }, { merge: true });
     }
 
-    // ---------- UI: categories ----------
+    async function loadLabelRules(){ if (!window._user) return; const ref = doc(db, 'users', window._user.uid); const snap = await getDoc(ref); if (snap.exists() && snap.data().labelRules) { labelRules = snap.data().labelRules; } }
+    async function saveLabelRules(){ if (!window._user) { saveToLocalStorage(); return; } const ref = doc(db, 'users', window._user.uid); await setDoc(ref, { labelRules }, { merge: true }); }
+
     function renderCategoryPills() {
       expenseCategoryPillsEl.innerHTML = '';
       userCategories.forEach(cat => {
-        const pill = document.createElement('button');
-        pill.className = 'category-pill';
-        pill.textContent = cat;
-        pill.dataset.category = cat;
-        pill.addEventListener('click', () => {
-          document.querySelectorAll('.category-pill').forEach(p => p.classList.remove('selected'));
-          pill.classList.add('selected');
-          selectedCategory = cat;
-        });
+        const pill = document.createElement('button'); pill.className = 'category-pill'; pill.textContent = cat; pill.dataset.category = cat;
+        pill.addEventListener('click', () => { document.querySelectorAll('.category-pill').forEach(p => p.classList.remove('selected')); pill.classList.add('selected'); selectedCategory = cat; });
         expenseCategoryPillsEl.appendChild(pill);
       });
     }
@@ -384,8 +387,7 @@
     function renderCategoryManager() {
       categoryList.innerHTML = '';
       userCategories.forEach((cat, idx) => {
-        const row = document.createElement('div');
-        row.className = 'flex items-center justify-between py-2';
+        const row = document.createElement('div'); row.className = 'flex items-center justify-between py-2';
         row.innerHTML = `
           <input class="flex-1 mr-3 border rounded px-3 py-2" value="${cat.replace(/\"/g, '&quot;')}" />
           <button class="btn btn-secondary mr-2" data-action="up" data-idx="${idx}">↑</button>
@@ -396,29 +398,15 @@
     }
 
     btnManageCategories.onclick = () => { renderCategoryManager(); dlgCategories.showModal(); };
-    btnAddCategory.onclick = async () => {
-      const v = (newCategoryInput.value||'').trim();
-      if (!v) return;
-      if (!userCategories.includes(v)) userCategories.push(v);
-      newCategoryInput.value = '';
-      await saveUserCategories();
-      renderCategoryPills();
-      renderCategoryManager();
-    };
+    btnAddCategory.onclick = async () => { const v = (newCategoryInput.value||'').trim(); if (!v) return; if (!userCategories.includes(v)) userCategories.push(v); newCategoryInput.value = ''; await saveUserCategories(); renderCategoryPills(); renderCategoryManager(); };
     categoryList.addEventListener('click', async (e) => {
-      const btn = e.target.closest('button');
-      if (!btn) return;
-      const idx = parseInt(btn.dataset.idx, 10);
-      const action = btn.dataset.action;
+      const btn = e.target.closest('button'); if (!btn) return; const idx = parseInt(btn.dataset.idx, 10); const action = btn.dataset.action;
       if (action === 'del') userCategories.splice(idx,1);
       if (action === 'up' && idx>0) [userCategories[idx-1], userCategories[idx]] = [userCategories[idx], userCategories[idx-1]];
       if (action === 'down' && idx<userCategories.length-1) [userCategories[idx+1], userCategories[idx]] = [userCategories[idx], userCategories[idx+1]];
-      await saveUserCategories();
-      renderCategoryPills();
-      renderCategoryManager();
+      await saveUserCategories(); renderCategoryPills(); renderCategoryManager();
     });
 
-    // ---------- UI: core update ----------
     function updateUI() {
       const monthKey = getMonthKey(currentMonth);
       if (!appData[monthKey]) appData[monthKey] = { startingBalance: 0, incomes: [], expenses: [] };
@@ -450,25 +438,18 @@
       renderPieChart(monthData.expenses);
       renderTemporalChart(monthData.expenses);
 
-      // persist
-      if (window._user) {
-        saveMonthToFirestore(monthKey);
-      } else {
-        saveToLocalStorage();
-      }
+      if (window._user) { saveMonthToFirestore(monthKey); saveLabelRules(); } else { saveToLocalStorage(); }
     }
 
     function renderIncomeList(incomes){
-      incomeListEl.innerHTML = incomes.length===0
-        ? '<p class="text-gray-500">Aucun revenu ajouté.</p>'
-        : incomes.map(income=>`
-          <div class="flex justify-between items-center p-2 bg-gray-50 rounded">
-            <p class="font-medium text-gray-800">${income.comment ? income.comment.replace(/</g,'&lt;') : '<i>Aucun commentaire</i>'}</p>
-            <div class="flex items-center gap-4">
-              <span class="font-semibold text-green-600">${income.amount.toFixed(2)} €</span>
-              <button class="delete-btn text-gray-400 hover:text-red-500" data-id="${income.id}" data-type="income">&times;</button>
-            </div>
-          </div>`).join('');
+      incomeListEl.innerHTML = incomes.length===0 ? '<p class="text-gray-500">Aucun revenu ajouté.</p>' : incomes.map(income=>`
+        <div class="flex justify-between items-center p-2 bg-gray-50 rounded">
+          <p class="font-medium text-gray-800">${income.comment ? income.comment.replace(/</g,'&lt;') : '<i>Aucun commentaire</i>'}</p>
+          <div class="flex items-center gap-4">
+            <span class="font-semibold text-green-600">${income.amount.toFixed(2)} €</span>
+            <button class="delete-btn text-gray-400 hover:text-red-500" data-id="${income.id}" data-type="income">&times;</button>
+          </div>
+        </div>`).join('');
     }
 
     function renderExpenseList(expenses){
@@ -495,11 +476,7 @@
       const grouped = expenses.reduce((acc,e)=>{ acc[e.category]=(acc[e.category]||0)+e.amount; return acc; },{});
       if (expensesChart) expensesChart.destroy();
       const hasData = Object.keys(grouped).length>0;
-      expensesChart = new Chart(expensesCtx, {
-        type:'doughnut',
-        data:{ labels: hasData? Object.keys(grouped): ['Aucune dépense'], datasets:[{ data: hasData? Object.values(grouped): [1], borderColor:'#fff', borderWidth:2 }]},
-        options:{ responsive:true, plugins:{ legend:{ display:hasData, position:'top' } }, events: hasData? ['mousemove','mouseout','click','touchstart','touchmove']: [] }
-      });
+      expensesChart = new Chart(expensesCtx, { type:'doughnut', data:{ labels: hasData? Object.keys(grouped): ['Aucune dépense'], datasets:[{ data: hasData? Object.values(grouped): [1], borderColor:'#fff', borderWidth:2 }]}, options:{ responsive:true, plugins:{ legend:{ display:hasData, position:'top' } }, events: hasData? ['mousemove','mouseout','click','touchstart','touchmove']: [] } });
     }
 
     function renderTemporalChart(expenses){
@@ -510,31 +487,34 @@
       }
       const sorted = [...expenses].sort((a,b)=>a.id-b.id);
       const labels = [], data = [];
-      let cum = 0;
-      sorted.forEach(e=>{ cum += e.amount; labels.push(new Date(e.id).toLocaleDateString('fr-FR',{ day:'numeric', month:'short'})); data.push(cum); });
+      let cum = 0; sorted.forEach(e=>{ cum += e.amount; labels.push(new Date(e.id).toLocaleDateString('fr-FR',{ day:'numeric', month:'short'})); data.push(cum); });
       temporalExpensesChart = new Chart(temporalCtx, { type:'line', data:{ labels, datasets:[{ label:'Dépenses cumulées', data, fill:true, tension:.4 }]}, options:{ responsive:true, plugins:{ legend:{ display:false } }, scales:{ y:{ beginAtZero:true, ticks:{ callback:v=> v+' €' } } } } });
     }
 
-    // ---------- Events ----------
     prevMonthBtn.addEventListener('click', ()=>{ currentMonth.setMonth(currentMonth.getMonth()-1); updateUI(); });
     nextMonthBtn.addEventListener('click', ()=>{ currentMonth.setMonth(currentMonth.getMonth()+1); updateUI(); });
     startingBalanceEl.addEventListener('change', ()=>{ const mk=getMonthKey(currentMonth); appData[mk].startingBalance = parseFloat(startingBalanceEl.value)||0; updateUI(); });
 
-    function addTransaction(type){
-      const amountEl = type==='income' ? incomeAmountEl : expenseAmountEl;
-      const commentEl = type==='income' ? incomeCommentEl : expenseCommentEl;
-      const amount = parseFloat(amountEl.value);
-      const comment = (commentEl.value||'').trim();
-      if (!amount || amount<=0 || (type==='expense' && !selectedCategory)){
-        if (!amount || amount<=0){ amountEl.classList.add('border-red-500','ring-2','ring-red-200'); setTimeout(()=>amountEl.classList.remove('border-red-500','ring-2','ring-red-200'),2000); }
-        if (type==='expense' && !selectedCategory){ expenseCategoryPillsEl.classList.add('p-2','rounded-lg','ring-2','ring-red-500'); setTimeout(()=>expenseCategoryPillsEl.classList.remove('p-2','rounded-lg','ring-2','ring-red-500'),2000); }
-        return;
+    function addTransaction(type, payload){
+      const mk = payload?.monthKey || getMonthKey(currentMonth);
+      if (!appData[mk]) appData[mk] = { startingBalance: 0, incomes: [], expenses: [] };
+
+      if (type==='income') {
+        const amount = payload?.amount ?? parseFloat(incomeAmountEl.value);
+        const comment = payload?.comment ?? (incomeCommentEl.value||'').trim();
+        if (!amount || amount<=0) { const el = incomeAmountEl; el.classList.add('border-red-500','ring-2','ring-red-200'); setTimeout(()=>el.classList.remove('border-red-500','ring-2','ring-red-200'),2000); return; }
+        const tx = { id: payload?.id || Date.now(), amount, comment };
+        appData[mk].incomes.push(tx);
+        if (!payload) { incomeAmountEl.value=''; incomeCommentEl.value=''; }
+      } else {
+        const amount = payload?.amount ?? parseFloat(expenseAmountEl.value);
+        const comment = payload?.comment ?? (expenseCommentEl.value||'').trim();
+        const category = payload?.category ?? selectedCategory;
+        if (!amount || amount<=0 || !category){ const el = expenseAmountEl; if(!amount||amount<=0){ el.classList.add('border-red-500','ring-2','ring-red-200'); setTimeout(()=>el.classList.remove('border-red-500','ring-2','ring-red-200'),2000);} if (!category){ expenseCategoryPillsEl.classList.add('p-2','rounded-lg','ring-2','ring-red-500'); setTimeout(()=>expenseCategoryPillsEl.classList.remove('p-2','rounded-lg','ring-2','ring-red-500'),2000);} return; }
+        const tx = { id: payload?.id || Date.now(), amount, comment, category };
+        appData[mk].expenses.push(tx);
+        if (!payload) { document.querySelectorAll('.category-pill.selected').forEach(p=>p.classList.remove('selected')); selectedCategory=null; expenseAmountEl.value=''; expenseCommentEl.value=''; }
       }
-      const mk = getMonthKey(currentMonth);
-      const tx = { id: Date.now(), amount, comment };
-      if (type==='expense') { tx.category = selectedCategory; appData[mk].expenses.push(tx); document.querySelectorAll('.category-pill.selected').forEach(p=>p.classList.remove('selected')); selectedCategory=null; }
-      else { appData[mk].incomes.push(tx); }
-      amountEl.value=''; commentEl.value='';
       updateUI();
     }
 
@@ -544,73 +524,54 @@
     ;[expenseAmountEl,expenseCommentEl].forEach(el=>el.addEventListener('keydown',(e)=>{ if(e.key==='Enter') addTransaction('expense'); }));
 
     document.body.addEventListener('click', (e)=>{
-      const btn = e.target.closest('.delete-btn');
-      if (!btn) return;
-      const { id, type } = btn.dataset;
-      const mk = getMonthKey(currentMonth);
-      const key = type==='income' ? 'incomes' : 'expenses';
-      appData[mk][key] = appData[mk][key].filter(i=> i.id !== parseInt(id));
-      updateUI();
+      const btn = e.target.closest('.delete-btn'); if (!btn) return; const { id, type } = btn.dataset; const mk = getMonthKey(currentMonth); const key = type==='income' ? 'incomes' : 'expenses'; appData[mk][key] = appData[mk][key].filter(i=> i.id !== parseInt(id)); updateUI();
     });
 
-    // ---------- CSV Export/Import (sera renforcé ensuite) ----------
     exportCsvBtn.addEventListener('click', ()=>{
-      // Export de toutes les données sous forme de lignes normalisées
       const rows = [['month','type','amount','category','comment','id']];
-      Object.entries(appData).forEach(([mk, data])=>{
-        data.incomes.forEach(i=> rows.push([mk,'income',i.amount,'',i.comment||'', i.id]));
-        data.expenses.forEach(x=> rows.push([mk,'expense',x.amount,x.category||'',x.comment||'', x.id]));
-      });
+      Object.entries(appData).forEach(([mk, data])=>{ data.incomes.forEach(i=> rows.push([mk,'income',i.amount,'',i.comment||'', i.id])); data.expenses.forEach(x=> rows.push([mk,'expense',x.amount,x.category||'',x.comment||'', x.id])); });
       const csv = rows.map(r=> r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(',')).join('\n');
-      const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = 'budget_data.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+      const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'budget_data.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
     });
 
     importCsvBtn.addEventListener('click', ()=> csvFileInput.click());
     csvFileInput.addEventListener('change', async (e)=>{
-      const file = e.target.files?.[0];
-      if (!file) return;
-      const text = await file.text();
-      // Très simple parser CSV (guillemets doublés)
-      const lines = text.split(/\r?\n/).filter(Boolean);
-      const header = lines.shift();
-      const cols = header.split(',').map(s=> s.replace(/^\"|\"$/g,'').toLowerCase());
-      const idx = (name)=> cols.indexOf(name);
-      const nextData = {};
-      for (const line of lines){
-        const parts = line.match(/\"(?:[^\"]|\"\")*\"|[^,]+/g)?.map(s=> s.replace(/^\"|\"$/g,'').replace(/\"\"/g,'"')) || [];
-        const mk = parts[idx('month')];
-        const type = parts[idx('type')];
-        const amount = parseFloat(parts[idx('amount')]||'0')||0;
-        const category = parts[idx('category')]||'';
-        const comment = parts[idx('comment')]||'';
-        const id = parseInt(parts[idx('id')]||Date.now());
-        if (!nextData[mk]) nextData[mk] = { startingBalance: 0, incomes: [], expenses: [] };
-        if (type==='income') nextData[mk].incomes.push({ id, amount, comment });
-        else if (type==='expense') nextData[mk].expenses.push({ id, amount, comment, category });
-      }
-      appData = nextData;
-      if (window._user){
-        // push all to Firestore
-        await Promise.all(Object.keys(appData).map(mk=> setDoc(doc(db,'users',window._user.uid,'months',mk), appData[mk])));
-      } else {
-        saveToLocalStorage();
-      }
-      csvFileInput.value = '';
-      updateUI();
-      alert('Import terminé.');
+      const file = e.target.files?.[0]; if (!file) return; const text = await file.text();
+      const lines = text.split(/\r?\n/).filter(Boolean); const header = lines.shift(); const cols = header.split(',').map(s=> s.replace(/^\"|\"$/g,'').toLowerCase()); const idx = (name)=> cols.indexOf(name); const nextData = {};
+      for (const line of lines){ const parts = line.match(/\"(?:[^\"]|\"\")*\"|[^,]+/g)?.map(s=> s.replace(/^\"|\"$/g,'').replace(/\"\"/g,'"')) || []; const mk = parts[idx('month')]; const type = parts[idx('type')]; const amount = parseFloat(parts[idx('amount')]||'0')||0; const category = parts[idx('category')]||''; const comment = parts[idx('comment')]||''; const id = parseInt(parts[idx('id')]||Date.now()); if (!nextData[mk]) nextData[mk] = { startingBalance: 0, incomes: [], expenses: [] }; if (type==='income') nextData[mk].incomes.push({ id, amount, comment }); else if (type==='expense') nextData[mk].expenses.push({ id, amount, comment, category }); }
+      appData = nextData; if (window._user){ await Promise.all(Object.keys(appData).map(mk=> setDoc(doc(db,'users',window._user.uid,'months',mk), appData[mk]))); } else { saveToLocalStorage(); }
+      csvFileInput.value = ''; updateUI(); alert('Import terminé.');
     });
 
-    exportChartBtn.addEventListener('click', ()=>{
-      const url = document.getElementById('expensesChart').toDataURL('image/png');
-      const a = document.createElement('a'); a.href = url; a.download = 'repartition_depenses.png'; a.click();
+    exportChartBtn.addEventListener('click', ()=>{ const url = document.getElementById('expensesChart').toDataURL('image/png'); const a = document.createElement('a'); a.href = url; a.download = 'repartition_depenses.png'; a.click(); });
+
+    // -------- PDF IMPORT --------
+    btnParsePdf.addEventListener('click', async ()=>{
+      const file = pdfFileInput.files?.[0]; if (!file) { alert('Choisis un fichier PDF.'); return; }
+      const arrayBuf = await file.arrayBuffer(); if (!window.pdfjsLib) { alert('pdf.js introuvable. Place pdf.min.js et pdf.worker.min.js à côté.'); return; }
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuf }).promise; let allItems = [];
+      for (let p=1; p<=pdf.numPages; p++){ const page = await pdf.getPage(p); const content = await page.getTextContent(); allItems.push(...content.items.map(i=> ({ s: i.str, x: i.transform[4], y: i.transform[5] }))); }
+      const lines = groupIntoLines(allItems); const txs = extractTransactions(lines);
+      if (txs.length === 0){ alert('Aucune opération détectée. Vérifie le PDF.'); return; }
+      importRowsTbody.innerHTML = '';
+      txs.forEach((t, idx)=>{ const cat = suggestCategory(t); const tr = document.createElement('tr'); tr.className = 'border-t'; tr.innerHTML = `
+          <td class="py-2 whitespace-nowrap">${t.dateStr}</td>
+          <td class="py-2">${escapeHtml(t.label)}</td>
+          <td class="py-2 whitespace-nowrap ${t.amount<0? 'text-red-600':'text-green-700'}">${t.amount.toFixed(2)} €</td>
+          <td class="py-2"><select class="border rounded px-2 py-1 text-sm w-full">${userCategories.map(c=>`<option ${c===cat?'selected':''}>${c}</option>`).join('')}</select></td>
+          <td class="py-2"><input type="text" class="border rounded px-2 py-1 text-sm w-full" placeholder="Commentaire" /></td>`; tr.dataset.idx = String(idx); importRowsTbody.appendChild(tr); });
+      dlgImport.showModal();
+      btnValidateImport.onclick = (e)=>{ e.preventDefault(); const rows = [...importRowsTbody.querySelectorAll('tr')]; rows.forEach(row=>{ const i = parseInt(row.dataset.idx,10); const tx = txs[i]; const sel = row.querySelector('select'); const inp = row.querySelector('input'); const chosenCat = sel.value; const comment = inp.value || tx.label; const key = normalizeLabel(tx.label); if (!labelRules[key]) labelRules[key] = chosenCat; const when = tx.date; const mk = getMonthKey(when); const id = +when; if (tx.amount < 0) { addTransaction('expense', { id, amount: Math.abs(tx.amount), comment, category: chosenCat, monthKey: mk }); } else { addTransaction('income', { id, amount: tx.amount, comment, monthKey: mk }); } }); dlgImport.close(); };
     });
 
-    // ---------- Init ----------
-    loadFromLocalStorage();
-    updateUI();
+    function escapeHtml(s){ return (s||'').replace(/[&<>\"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c])); }
+    function groupIntoLines(items){ const byY = {}; items.forEach(it=>{ const y = Math.round(it.y/2); (byY[y] ||= []).push(it); }); const ys = Object.keys(byY).map(Number).sort((a,b)=>b-a); const lines = ys.map(y=> byY[y].sort((a,b)=>a.x-b.x).map(i=>i.s).join(' ').replace(/\s+/g,' ').trim()).filter(Boolean); return lines; }
+    function extractTransactions(lines){ const txs = []; const dateRe = /(?<d>\b\d{2}\/\d{2}(?:\/\d{2,4})?)/; const amtRe = /([+-]?\d{1,3}(?: \d{3})*,\d{2})\b/; const yearNow = new Date().getFullYear(); for (const ln of lines){ const dM = ln.match(dateRe); const aM = ln.match(amtRe); if (!dM || !aM) continue; const dateStr = dM.groups?.d || dM[0]; let label = ln.replace(dateStr, '').replace(aM[0],'').trim(); label = label.replace(/^[-–—\s:]+/, '').replace(/\s{2,}/g,' '); const amt = parseFloat(aM[0].replace(/\./g,'').replace(/ /g,'').replace(',','.')); const sign = ln.includes('-'+aM[0].replace('+','').replace('-','')) ? -1 : (ln.includes('-')? -1 : 1); const amount = sign<0 ? -Math.abs(amt) : Math.abs(amt); const parts = dateStr.split('/').map(n=>parseInt(n,10)); const [dd, mm, yy] = parts.length===3 ? parts : [parts[0], parts[1], yearNow]; const fullYear = (yy<100) ? (2000+yy) : yy; const date = new Date(fullYear, mm-1, dd); if (/^solde|^total|^report|^nouveau/i.test(label)) continue; txs.push({ date, dateStr: date.toLocaleDateString('fr-FR'), label, amount }); } return txs; }
+    function normalizeLabel(s){ return (s||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9 ]/g,'').replace(/\s+/g,' ').trim(); }
+    function suggestCategory(tx){ const key = normalizeLabel(tx.label); if (labelRules[key]) return labelRules[key]; const L = key; const kws = [ ['Alimentation (courses)', /CARREFOUR|INTERMARCHE|LIDL|ALDI|AUCHAN|MONOPRIX|LECLERC|PICARD/], ['Restaurant', /UBER\s*EATS|DELIVEROO|MC ?DONALD|KFC|BURGER KING|PIZZA|BOULANGERIE|RESTAURANT|BISTRO|CAFE/], ['Transports', /SNCF|RATP|BILLET|UBER\b|BOLT\b|TOTAL|ESSO|AUTOROUTE|PEAGE|T\s?+|AIR FRANCE|RYANAIR|TRANSILIEN/], ['Factures récurrentes', /ELECTRICITE|EDF|ENGIE|EAU|SFR|FREE|ORANGE|BOUYGUES|INTERNET|ASSURANCE|AMAZON PRIME/], ['Abonnements', /SPOTIFY|NETFLIX|YOUTUBE|APPLE MUSIC|GOOGLE|MICROSOFT|ADOBE|SUBSCRIPTION|ABONNEMENT/], ['Loyer', /LOYER|LOCATION|BAIL|GARANTIE LOCATIVE/], ['Santé', /PHARMACIE|MEDECIN|DOCTOLIB|DENTISTE|HOPITAL|LABO/], ['Loisirs & Sorties', /FNAC|CULTURA|JEU|CINEMA|THEATRE|PARC|MUSEE/], ['Vêtements & Shopping', /ZARA|H&M|DECATHLON|GO SPORT|NIKE|ADIDAS|GALERIES LAFAYETTE|PRINTEMPS/], ['Dépenses Vacances', /HOTEL|BOOKING|AIRBNB|HOSTEL|CAMPING|VOYAGE/] ]; for (const [cat, re] of kws){ if (re.test(L)) return cat; } return 'Autre'; }
+
+    loadFromLocalStorage(); updateUI();
   </script>
 </body>
 </html>
+
