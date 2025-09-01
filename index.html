@@ -548,31 +548,102 @@
     exportChartBtn.addEventListener('click', ()=>{ const url = document.getElementById('expensesChart').toDataURL('image/png'); const a = document.createElement('a'); a.href = url; a.download = 'repartition_depenses.png'; a.click(); });
 
     // -------- PDF IMPORT --------
-    btnParsePdf.addEventListener('click', async ()=>{
-      const file = pdfFileInput.files?.[0]; if (!file) { alert('Choisis un fichier PDF.'); return; }
-      const arrayBuf = await file.arrayBuffer();
-      const PDFJS = window.pdfjsLib;
+btnParsePdf.addEventListener('click', async () => {
+  try {
+    const file = pdfFileInput.files?.[0];
+    if (!file) { alert('Choisis un fichier PDF.'); return; }
 
-      if (!PDFJS) throw new Error('pdfjsLib non défini');
-      const pdf = await PDFJS.getDocument({ data: arrayBuffer }).promise;
-      if (!window.pdfjsLib)
-      { 
-        alert('pdf.js introuvable. Place pdf.min.js et pdf.worker.min.js à côté.'); return; 
-      }
-      let allItems = [];
-      for (let p=1; p<=pdf.numPages; p++){ const page = await pdf.getPage(p); const content = await page.getTextContent(); allItems.push(...content.items.map(i=> ({ s: i.str, x: i.transform[4], y: i.transform[5] }))); }
-      const lines = groupIntoLines(allItems); const txs = extractTransactions(lines);
-      if (txs.length === 0){ alert('Aucune opération détectée. Vérifie le PDF.'); return; }
-      importRowsTbody.innerHTML = '';
-      txs.forEach((t, idx)=>{ const cat = suggestCategory(t); const tr = document.createElement('tr'); tr.className = 'border-t'; tr.innerHTML = `
-          <td class="py-2 whitespace-nowrap">${t.dateStr}</td>
-          <td class="py-2">${escapeHtml(t.label)}</td>
-          <td class="py-2 whitespace-nowrap ${t.amount<0? 'text-red-600':'text-green-700'}">${t.amount.toFixed(2)} €</td>
-          <td class="py-2"><select class="border rounded px-2 py-1 text-sm w-full">${userCategories.map(c=>`<option ${c===cat?'selected':''}>${c}</option>`).join('')}</select></td>
-          <td class="py-2"><input type="text" class="border rounded px-2 py-1 text-sm w-full" placeholder="Commentaire" /></td>`; tr.dataset.idx = String(idx); importRowsTbody.appendChild(tr); });
-      dlgImport.showModal();
-      btnValidateImport.onclick = (e)=>{ e.preventDefault(); const rows = [...importRowsTbody.querySelectorAll('tr')]; rows.forEach(row=>{ const i = parseInt(row.dataset.idx,10); const tx = txs[i]; const sel = row.querySelector('select'); const inp = row.querySelector('input'); const chosenCat = sel.value; const comment = inp.value || tx.label; const key = normalizeLabel(tx.label); if (!labelRules[key]) labelRules[key] = chosenCat; const when = tx.date; const mk = getMonthKey(when); const id = +when; if (tx.amount < 0) { addTransaction('expense', { id, amount: Math.abs(tx.amount), comment, category: chosenCat, monthKey: mk }); } else { addTransaction('income', { id, amount: tx.amount, comment, monthKey: mk }); } }); dlgImport.close(); };
+    // 1) Lire le fichier -> ArrayBuffer
+    const arrayBuffer = await file.arrayBuffer();
+
+    // 2) pdf.js (v3 UMD) aime bien un Uint8Array
+    const data = new Uint8Array(arrayBuffer);
+
+    // 3) Charger le PDF
+    const PDFJS = window.pdfjsLib;
+    if (!PDFJS) throw new Error('pdfjsLib non défini (pdf.min.js non chargé)');
+    const pdf = await PDFJS.getDocument({ data }).promise;
+
+    // 4) Extraire le texte de chaque page
+    let allItems = [];
+    for (let p = 1; p <= pdf.numPages; p++) {
+      const page = await pdf.getPage(p);
+      const content = await page.getTextContent();
+      // on garde le texte + positions
+      allItems.push(...content.items.map(i => ({
+        s: i.str, x: i.transform[4], y: i.transform[5]
+      })));
+    }
+
+    // 5) Parser en lignes puis transactions
+    const lines = groupIntoLines(allItems);
+    const txs = extractTransactions(lines);
+
+    if (!txs.length) {
+      console.warn('[PDF] Aucune opération détectée. Dump de quelques lignes:');
+      console.warn(lines.slice(0, 50)); // aide debug
+      alert("Aucune opération détectée.\nVérifie que c'est bien un relevé 'texte' (pas un scan).");
+      return;
+    }
+
+    // 6) Afficher la modale de revue
+    importRowsTbody.innerHTML = '';
+    txs.forEach((t, idx) => {
+      const cat = suggestCategory(t);
+      const tr = document.createElement('tr');
+      tr.className = 'border-t';
+      tr.innerHTML = `
+        <td class="py-2 whitespace-nowrap">${t.dateStr}</td>
+        <td class="py-2">${escapeHtml(t.label)}</td>
+        <td class="py-2 whitespace-nowrap ${t.amount<0?'text-red-600':'text-green-700'}">
+          ${t.amount.toFixed(2)} €
+        </td>
+        <td class="py-2">
+          <select class="border rounded px-2 py-1 text-sm w-full">
+            ${userCategories.map(c => `<option ${c===cat?'selected':''}>${c}</option>`).join('')}
+          </select>
+        </td>
+        <td class="py-2">
+          <input type="text" class="border rounded px-2 py-1 text-sm w-full" placeholder="Commentaire" />
+        </td>`;
+      tr.dataset.idx = String(idx);
+      importRowsTbody.appendChild(tr);
     });
+
+    dlgImport.showModal();
+
+    btnValidateImport.onclick = (e) => {
+      e.preventDefault();
+      const rows = [...importRowsTbody.querySelectorAll('tr')];
+      rows.forEach(row => {
+        const i = parseInt(row.dataset.idx, 10);
+        const tx = txs[i];
+        const sel = row.querySelector('select');
+        const inp = row.querySelector('input');
+        const chosenCat = sel.value;
+        const comment = inp.value || tx.label;
+
+        const key = normalizeLabel(tx.label);
+        if (!labelRules[key]) labelRules[key] = chosenCat;
+
+        const when = tx.date;
+        const mk = getMonthKey(when);
+        const id = +when;
+        if (tx.amount < 0) {
+          addTransaction('expense', { id, amount: Math.abs(tx.amount), comment, category: chosenCat, monthKey: mk });
+        } else {
+          addTransaction('income', { id, amount: tx.amount, comment, monthKey: mk });
+        }
+      });
+      dlgImport.close();
+    };
+
+  } catch (err) {
+    console.error('[PDF] erreur:', err);
+    alert('Erreur PDF: ' + (err?.message || err));
+  }
+});
+
 
     function escapeHtml(s){ return (s||'').replace(/[&<>\"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c])); }
     function groupIntoLines(items){ const byY = {}; items.forEach(it=>{ const y = Math.round(it.y/2); (byY[y] ||= []).push(it); }); const ys = Object.keys(byY).map(Number).sort((a,b)=>b-a); const lines = ys.map(y=> byY[y].sort((a,b)=>a.x-b.x).map(i=>i.s).join(' ').replace(/\s+/g,' ').trim()).filter(Boolean); return lines; }
