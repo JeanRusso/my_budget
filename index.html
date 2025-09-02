@@ -1,848 +1,861 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gestion de Budget – Firebase Sync + Import OFX</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <style>
-    body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
-    .card { background-color: white; border-radius: 0.75rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); transition: all 0.3s ease; }
-    .card:hover { box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1); }
-    .btn { display:inline-flex; align-items:center; justify-content:center; padding:0.5rem 1rem; border-radius:0.5rem; font-weight:500; transition:all .2s; cursor:pointer; }
-    .btn-primary { background-color:#4f46e5; color:white; }
-    .btn-primary:hover { background-color:#4338ca; }
-    .btn-secondary { background-color:#e5e7eb; color:#1f2937; }
-    .btn-secondary:hover { background-color:#d1d5db; }
-    input, select { border-radius:0.5rem; border:1px solid #d1d5db; padding:0.5rem 0.75rem; width:100%; }
-    .progress-bar { background-color:#e5e7eb; border-radius:9999px; overflow:hidden; height:1.25rem; }
-    .progress-bar-fill { background-color:#22c55e; height:100%; transition:width .5s ease-in-out; }
-    .category-pill { padding:0.5rem 0.75rem; border:1px solid #d1d5db; border-radius:9999px; cursor:pointer; transition:all .2s; font-size:.875rem; }
-    .category-pill:hover { background-color:#f3f4f6; }
-    .category-pill.selected { background-color:#4f46e5; color:white; border-color:#4f46e5; }
-    ::-webkit-scrollbar{ width:8px; } ::-webkit-scrollbar-track{ background:#f1f5f9; } ::-webkit-scrollbar-thumb{ background:#cbd5e1; border-radius:10px; } ::-webkit-scrollbar-thumb:hover{ background:#94a3b8; }
-    dialog::backdrop { background: rgb(15 23 42 / .45); }
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Gestion de Budget – Firebase Sync + Import OFX</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  body{font-family:'Inter',sans-serif;background:#f8fafc}
+  .card{background:#fff;border-radius:.75rem;box-shadow:0 4px 6px -1px rgb(0 0 0/0.1),0 2px 4px -2px rgb(0 0 0/0.1)}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:.5rem;padding:.5rem .9rem;border-radius:.6rem;font-weight:600}
+  .btn-primary{background:#4f46e5;color:#fff}.btn-primary:hover{background:#4338ca}
+  .btn-secondary{background:#e5e7eb}.btn-secondary:hover{background:#d1d5db}
+  .btn-danger{background:#ef4444;color:#fff}.btn-danger:hover{background:#dc2626}
+  .category-pill{padding:.4rem .7rem;border:1px solid #d1d5db;border-radius:9999px}
+  .category-pill.selected{background:#4f46e5;color:#fff;border-color:#4f46e5}
+  dialog::backdrop{background:rgba(15,23,42,.45)}
+  .hidden{display:none}
+</style>
 </head>
 <body class="p-4 md:p-8">
-  <div class="max-w-7xl mx-auto">
-    <header class="text-center mb-8">
-      <h1 class="text-4xl font-bold text-gray-800">Mon Suivi Budgétaire</h1>
-      <p class="text-lg text-gray-500 mt-2">Reprenez le contrôle de vos finances et atteignez vos objectifs.</p>
+<div class="max-w-7xl mx-auto">
+  <header class="text-center mb-8">
+    <h1 class="text-4xl font-bold text-gray-800">Mon Suivi Budgétaire</h1>
+    <p class="text-lg text-gray-500 mt-2">Reprenez le contrôle de vos finances et atteignez vos objectifs.</p>
+    <!-- Barre d’auth -->
+    <div class="mt-6 flex flex-wrap items-center justify-center gap-3">
+      <span id="auth-status" class="text-sm text-gray-600">Non connecté</span>
+      <button id="btn-google" class="btn btn-secondary">Se connecter avec Google</button>
+      <button id="btn-anon" class="btn btn-secondary">Connexion anonyme</button>
+      <button id="btn-signout" class="btn btn-secondary hidden">Se déconnecter</button>
+    </div>
+    <p id="auth-warning" class="mt-2 text-xs text-amber-700 hidden">Vous n'êtes pas connecté : les données ne seront sauvegardées que dans ce navigateur (localStorage).</p>
+  </header>
 
-      <!-- Auth bar -->
-      <div class="mt-6 flex flex-wrap items-center justify-center gap-3">
-        <span id="auth-status" class="text-sm text-gray-600">Non connecté</span>
-        <button id="btn-google" class="btn btn-secondary">Se connecter avec Google</button>
-        <button id="btn-anon" class="btn btn-secondary">Connexion anonyme</button>
-        <button id="btn-signout" class="btn btn-secondary hidden">Se déconnecter</button>
-      </div>
-      <p id="auth-warning" class="mt-2 text-xs text-amber-700 hidden">Vous n'êtes pas connecté : les données ne seront sauvegardées que dans ce navigateur (localStorage).</p>
-    </header>
+  <!-- Mois & solde initial -->
+  <div class="card p-4 mb-8 flex flex-col md:flex-row items-center justify-between gap-4">
+    <div class="flex items-center gap-2">
+      <button id="prev-month-btn" class="btn btn-secondary p-2 rounded-full" aria-label="Mois précédent">◀</button>
+      <h2 id="current-month-display" class="text-2xl font-semibold text-gray-700 w-56 text-center"></h2>
+      <button id="next-month-btn" class="btn btn-secondary p-2 rounded-full" aria-label="Mois suivant">▶</button>
+      <button id="btn-delete-month" class="btn btn-danger ml-2" title="Supprimer toutes les données du mois">🗑️ Purger le mois</button>
+    </div>
+    <div class="flex items-center gap-2">
+      <label for="starting-balance" class="font-medium text-gray-600">Solde initial (€):</label>
+      <input type="number" id="starting-balance" class="w-40" placeholder="Ex: 2500" />
+    </div>
+  </div>
 
-    <!-- Mois & solde initial -->
-    <div class="card p-4 mb-8 flex flex-col md:flex-row items-center justify-between gap-4">
-      <div class="flex items-center gap-4">
-        <button id="prev-month-btn" class="btn btn-secondary p-2 rounded-full" aria-label="Mois précédent">◀</button>
-        <h2 id="current-month-display" class="text-2xl font-semibold text-gray-700 w-48 text-center"></h2>
-        <button id="next-month-btn" class="btn btn-secondary p-2 rounded-full" aria-label="Mois suivant">▶</button>
+  <main class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+    <!-- Colonne gauche -->
+    <div class="lg:col-span-1 flex flex-col gap-8">
+      <!-- Dépenses -->
+      <div class="card p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-xl font-semibold text-gray-700">Ajouter une dépense</h3>
+          <button id="btn-manage-categories" class="btn btn-secondary text-sm">Gérer les catégories</button>
+        </div>
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-600 mb-2">1. Choisissez une catégorie</label>
+            <div id="expense-category-pills" class="flex flex-wrap gap-2"></div>
+          </div>
+          <div>
+            <label for="expense-amount" class="block text-sm font-medium text-gray-600 mb-1">2. Montant (€)</label>
+            <input type="number" id="expense-amount" placeholder="Ex: 50.25">
+          </div>
+          <div>
+            <label for="expense-comment" class="block text-sm font-medium text-gray-600 mb-1">3. Commentaire</label>
+            <input type="text" id="expense-comment" placeholder="Ex: Courses semaine 1">
+          </div>
+          <div>
+            <label for="expense-date" class="block text-sm font-medium text-gray-600 mb-1">4. Date</label>
+            <input type="date" id="expense-date">
+          </div>
+          <button id="add-expense-btn" class="btn btn-primary w-full bg-red-600 hover:bg-red-700">Ajouter la dépense</button>
+        </div>
       </div>
-      <div class="flex items-center gap-2">
-        <label for="starting-balance" class="font-medium text-gray-600">Solde initial (€):</label>
-        <input type="number" id="starting-balance" class="w-40" placeholder="Ex: 2500" />
+      <!-- Revenus -->
+      <div class="card p-6">
+        <h3 class="text-xl font-semibold mb-4 text-gray-700">Ajouter un revenu</h3>
+        <div class="space-y-4">
+          <div>
+            <label for="income-amount" class="block text-sm font-medium text-gray-600 mb-1">Montant (€)</label>
+            <input type="number" id="income-amount" placeholder="Ex: 3300">
+          </div>
+          <div>
+            <label for="income-comment" class="block text-sm font-medium text-gray-600 mb-1">Commentaire</label>
+            <input type="text" id="income-comment" placeholder="Ex: Salaire Net">
+          </div>
+          <div>
+            <label for="income-date" class="block text-sm font-medium text-gray-600 mb-1">Date</label>
+            <input type="date" id="income-date">
+          </div>
+          <button id="add-income-btn" class="btn btn-primary w-full">Ajouter le revenu</button>
+        </div>
+      </div>
+      <!-- Données / Import OFX -->
+      <div class="card p-6">
+        <h3 class="text-xl font-semibold mb-4 text-gray-700">Données</h3>
+        <div class="space-y-3">
+          <button id="export-csv-btn" class="btn btn-secondary w-full">Exporter toutes les données (CSV)</button>
+          <button id="import-csv-btn" class="btn btn-secondary w-full">Importer et remplacer les données (CSV)</button>
+          <input type="file" id="csv-file-input" class="hidden" accept=".csv" />
+          <hr class="my-3">
+          <h4 class="text-lg font-semibold text-gray-700">Importer un relevé (OFX)</h4>
+          <input type="file" id="ofx-file-input" accept=".ofx,.qfx,.xml,.txt" class="w-full" />
+          <button id="btn-parse-ofx" class="btn btn-primary w-full">Analyser le OFX</button>
+        </div>
       </div>
     </div>
 
-    <main class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-      <!-- Colonne de gauche: saisie -->
-      <div class="lg:col-span-1 flex flex-col gap-8">
-        <!-- Dépenses -->
-        <div class="card p-6">
-          <div class="flex items-center justify-between mb-4">
-            <h3 class="text-xl font-semibold text-gray-700">Ajouter une dépense</h3>
-            <div class="flex items-center gap-2">
-              <button id="btn-manage-categories" class="btn btn-secondary text-sm">Gérer les catégories</button>
-            </div>
-          </div>
-          <div class="space-y-4">
-            <div>
-              <label class="block text-sm font-medium text-gray-600 mb-2">1. Choisissez une catégorie</label>
-              <div id="expense-category-pills" class="flex flex-wrap gap-2"></div>
-            </div>
-            <div>
-              <label for="expense-amount" class="block text-sm font-medium text-gray-600 mb-1">2. Montant (€)</label>
-              <input type="number" id="expense-amount" placeholder="Ex: 50.25">
-            </div>
-            <div>
-              <label for="expense-comment" class="block text-sm font-medium text-gray-600 mb-1">3. Commentaire (facultatif)</label>
-              <input type="text" id="expense-comment" placeholder="Ex: Courses semaine 1">
-            </div>
-            <button id="add-expense-btn" class="btn btn-primary w-full bg-red-600 hover:bg-red-700">Ajouter la dépense</button>
-          </div>
-        </div>
-        <!-- Revenus -->
-        <div class="card p-6">
-          <h3 class="text-xl font-semibold mb-4 text-gray-700">Ajouter un revenu</h3>
-          <div class="space-y-4">
-            <div>
-              <label for="income-amount" class="block text-sm font-medium text-gray-600 mb-1">Montant (€)</label>
-              <input type="number" id="income-amount" placeholder="Ex: 3300">
-            </div>
-            <div>
-              <label for="income-comment" class="block text-sm font-medium text-gray-600 mb-1">Commentaire (facultatif)</label>
-              <input type="text" id="income-comment" placeholder="Ex: Salaire Net">
-            </div>
-            <button id="add-income-btn" class="btn btn-primary w-full">Ajouter le revenu</button>
-          </div>
-        </div>
-        <!-- Données & Import OFX -->
-        <div class="card p-6">
-          <h3 class="text-xl font-semibold mb-4 text-gray-700">Données</h3>
-          <div class="space-y-3">
-            <button id="export-csv-btn" class="btn btn-secondary w-full">Exporter toutes les données (CSV)</button>
-            <button id="import-csv-btn" class="btn btn-secondary w-full">Importer et remplacer les données (CSV)</button>
-            <input type="file" id="csv-file-input" class="hidden" accept=".csv" />
-            <hr class="my-3">
-            <h4 class="text-lg font-semibold text-gray-700">Importer un relevé Caisse d'Épargne (OFX)</h4>
-            <p class="text-sm text-gray-500">Télécharge ton fichier .ofx depuis l'espace client (période multi-mois possible).</p>
-            <div class="flex items-center gap-2">
-              <input type="file" id="ofx-file-input" accept=".ofx,application/x-ofx,application/ofx" class="w-full" />
-            </div>
-            <button id="btn-parse-ofx" class="btn btn-primary w-full">Importer OFX</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Colonne de droite: Bilan & Graphiques -->
-      <div class="lg:col-span-2 flex flex-col gap-8">
-        <!-- Bilan -->
-        <div class="card p-6">
-          <h3 class="text-xl font-semibold mb-4 text-gray-700">Bilan du Mois</h3>
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-            <div class="bg-green-50 p-4 rounded-lg"><p class="text-sm text-green-600 font-medium">Revenus Totaux</p><p id="total-income" class="text-2xl font-bold text-green-800">0.00 €</p></div>
-            <div class="bg-red-50 p-4 rounded-lg"><p class="text-sm text-red-600 font-medium">Dépenses Totales</p><p id="total-expenses" class="text-2xl font-bold text-red-800">0.00 €</p></div>
-            <div class="bg-indigo-50 p-4 rounded-lg"><p class="text-sm text-indigo-600 font-medium">Épargne du Mois</p><p id="monthly-saving" class="text-2xl font-bold text-indigo-800">0.00 €</p></div>
-            <div class="bg-gray-100 p-4 rounded-lg"><p class="text-sm text-gray-600 font-medium">Solde Final Estimé</p><p id="final-balance" class="text-2xl font-bold text-gray-800">0.00 €</p></div>
-          </div>
-          <div class="mt-6">
-            <h4 class="font-semibold text-gray-700">Objectif d'épargne : 1400 €</h4>
-            <div class="progress-bar mt-2"><div id="savings-progress" class="progress-bar-fill" style="width:0%"></div></div>
-            <p id="savings-progress-text" class="text-sm text-right mt-1 text-gray-500">0.00 € / 1400.00 €</p>
-          </div>
-        </div>
-        <!-- Répartition -->
-        <div class="card p-6">
-          <div class="flex justify-between items-center mb-4">
-            <h3 class="text-xl font-semibold text-gray-700">Répartition des Dépenses</h3>
-            <button id="export-chart-btn" class="btn btn-secondary">Exporter (PNG)</button>
-          </div>
-          <canvas id="expensesChart"></canvas>
-        </div>
-        <!-- Évolution du mois -->
-        <div class="card p-6">
-          <h3 class="text-xl font-semibold text-gray-700 mb-4">Évolution des Dépenses du Mois</h3>
-          <canvas id="temporalExpensesChart"></canvas>
-        </div>
-      </div>
-    </main>
-
-    <!-- Détail des transactions -->
-    <section class="mt-8">
+    <!-- Colonne droite -->
+    <div class="lg:col-span-2 flex flex-col gap-8">
+      <!-- Bilan -->
       <div class="card p-6">
-        <h3 class="text-2xl font-semibold mb-4 text-gray-700">Détail des Transactions</h3>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <h4 class="text-lg font-semibold text-green-700 mb-2">Revenus</h4>
-            <div id="income-list" class="space-y-2 max-h-60 overflow-y-auto pr-2"><p class="text-gray-500">Aucun revenu ajouté pour ce mois.</p></div>
-          </div>
-          <div>
-            <h4 class="text-lg font-semibold text-red-700 mb-2">Dépenses par Catégorie</h4>
-            <div id="expense-list" class="space-y-4 max-h-96 overflow-y-auto pr-2"><p class="text-gray-500">Aucune dépense ajoutée.</p></div>
-          </div>
+        <h3 class="text-xl font-semibold mb-4 text-gray-700">Bilan du Mois</h3>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+          <div><p class="text-sm text-green-600 font-medium">Revenus Totaux</p><p id="total-income" class="text-2xl font-bold text-green-800">0.00 €</p></div>
+          <div><p class="text-sm text-red-600 font-medium">Dépenses Totales</p><p id="total-expenses" class="text-2xl font-bold text-red-800">0.00 €</p></div>
+          <div><p class="text-sm text-indigo-600 font-medium">Épargne du Mois</p><p id="monthly-saving" class="text-2xl font-bold text-indigo-800">0.00 €</p></div>
+          <div><p class="text-sm text-gray-600 font-medium">Solde Final Estimé</p><p id="final-balance" class="text-2xl font-bold text-gray-800">0.00 €</p></div>
         </div>
       </div>
-    </section>
 
-    <!-- Modale Gérer les catégories -->
-    <dialog id="dlg-categories" class="rounded-2xl p-0 w-full max-w-xl">
-      <form method="dialog" class="card p-6">
-        <h3 class="text-xl font-semibold text-gray-800 mb-4">Gérer les catégories</h3>
-        <div class="space-y-3">
+      <!-- Répartition (Synthèse / Détail) -->
+      <div class="card p-6">
+        <div class="flex justify-between items-center mb-4">
           <div class="flex gap-2">
-            <input id="new-category-input" class="flex-1" placeholder="Ex: Restaurant (fast food)" />
-            <button id="btn-add-category" type="button" class="btn btn-primary">Ajouter</button>
+            <button id="btn-summary-view" class="btn btn-secondary">Synthèse</button>
+            <button id="btn-detail-view" class="btn btn-secondary">Détail</button>
           </div>
-          <div id="category-list" class="divide-y"></div>
+          <button id="export-chart-btn" class="btn btn-secondary">Exporter (PNG)</button>
         </div>
-        <div class="mt-6 flex justify-end gap-2">
-          <button class="btn btn-secondary" value="cancel">Fermer</button>
-        </div>
-      </form>
-    </dialog>
-
-    <!-- Modale de revue d'import -->
-    <dialog id="dlg-import" class="rounded-2xl p-0 w-full max-w-5xl">
-      <form method="dialog" class="card p-0">
-        <div class="p-6 border-b">
-          <h3 class="text-xl font-semibold text-gray-800">Revue des opérations détectées</h3>
-          <p class="text-sm text-gray-500">Corrige les catégories si besoin. Les choix seront mémorisés pour les libellés identiques.</p>
-        </div>
-        <div class="p-6 max-h-[70vh] overflow-y-auto">
+        <div id="expenses-summary-view"><canvas id="expensesChart"></canvas></div>
+        <div id="expenses-detail-view" class="hidden">
           <table class="w-full text-sm">
             <thead class="text-left text-gray-600">
               <tr>
                 <th class="py-2">Date</th>
-                <th class="py-2">Libellé</th>
+                <th class="py-2">Commentaire</th>
                 <th class="py-2">Montant</th>
-                <th class="py-2">Catégorie suggérée</th>
-                <th class="py-2">Commentaire (opt.)</th>
-                <th class="py-2 w-32">Actions</th>
+                <th class="py-2">Catégorie</th>
+                <th class="py-2">Actions</th>
               </tr>
             </thead>
-            <tbody id="import-rows"></tbody>
+            <tbody id="expense-detail-list"></tbody>
           </table>
         </div>
-        <div class="p-4 bg-gray-50 flex justify-end gap-2">
-          <button class="btn btn-secondary" value="cancel">Annuler</button>
-          <button id="btn-validate-import" class="btn btn-primary" value="default">Tout valider</button>
-        </div>
-      </form>
-    </dialog>
-
-    <!-- Section Analyse IA (placeholder) -->
-    <section class="mt-8">
-      <div class="card p-6">
-        <h3 class="text-2xl font-semibold mb-4 text-gray-700">Analyse et Suggestions d'Économies par IA</h3>
-        <p class="text-gray-600 mb-4">Fonctionnement à venir.</p>
       </div>
-    </section>
-  </div>
 
-  <!-- App JS + Firebase (module) -->
-  <script type="module">
-    // ---------- Firebase ----------
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInAnonymously, signOut } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
-    import { getFirestore, doc, getDoc, setDoc, collection, getDocs } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+      <!-- Courbes temporelles multi-catégories -->
+      <div class="card p-6">
+        <h3 class="text-xl font-semibold text-gray-700 mb-2">Évolution mensuelle par catégorie</h3>
+        <div id="category-filters" class="flex flex-wrap gap-3 mb-3"></div>
+        <canvas id="temporalCategoriesChart"></canvas>
+      </div>
+    </div>
+  </main>
 
-    const firebaseConfig = {
-      apiKey: "AIzaSyD4f5nOJUv_DhFSuRsYxCIxsU8lEmHKb_U",
-      authDomain: "budget-app-71fa3.firebaseapp.com",
-      projectId: "budget-app-71fa3",
-      storageBucket: "budget-app-71fa3.firebasestorage.app",
-      messagingSenderId: "626176730343",
-      appId: "1:626176730343:web:233508ab9c71ff16596e42"
-    };
+  <!-- Détail groupé -->
+  <section class="mt-8">
+    <div class="card p-6">
+      <h3 class="text-2xl font-semibold text-gray-700">Détail des Transactions</h3>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-2">
+        <div>
+          <h4 class="text-lg font-semibold text-green-700 mb-2">Revenus</h4>
+          <div id="income-list" class="space-y-2 max-h-60 overflow-y-auto pr-2"><p class="text-gray-500">Aucun revenu ajouté.</p></div>
+        </div>
+        <div>
+          <h4 class="text-lg font-semibold text-red-700 mb-2">Dépenses par Catégorie</h4>
+          <div id="expense-list" class="space-y-4 max-h-96 overflow-y-auto pr-2"><p class="text-gray-500">Aucune dépense ajoutée.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
 
-    // ---------- App State ----------
-    const SAVINGS_GOAL = 1400;
-    let currentMonth = new Date();
-    let appData = {}; // { 'YYYY-MM': { startingBalance, incomes[], expenses[] } }
-    let expensesChart, temporalExpensesChart;
-    let selectedCategory = null;
-    let labelRules = {};
-    let userCategories = [
-      'Alimentation (courses)',
-      'Restaurant',
-      'Transports',
-      'Factures récurrentes',
-      'Abonnements',
-      'Loyer',
-      'Santé',
-      'Loisirs & Sorties',
-      'Vêtements & Shopping',
-      'Dépenses Mariage',
-      'Dépenses Vacances',
-      'Religion – denier du culte',
-      'Religion – week-end communauté',
-      'Autre'
-    ];
+  <!-- Modale Gérer les catégories -->
+  <dialog id="dlg-categories" class="rounded-2xl p-0 w-full max-w-xl">
+    <form method="dialog" class="card p-6">
+      <h3 class="text-xl font-semibold text-gray-800 mb-4">Gérer les catégories</h3>
+      <div class="space-y-3">
+        <div class="flex gap-2">
+          <input id="new-category-input" class="flex-1" placeholder="Ex: Restaurant (fast food)" />
+          <button id="btn-add-category" type="button" class="btn btn-primary">Ajouter</button>
+        </div>
+        <div id="category-list" class="divide-y"></div>
+      </div>
+      <div class="mt-6 flex justify-end gap-2">
+        <button class="btn btn-secondary" value="cancel">Fermer</button>
+      </div>
+    </form>
+  </dialog>
 
-    // ---------- DOM ----------
-    const startingBalanceEl = document.getElementById('starting-balance');
-    const currentMonthDisplay = document.getElementById('current-month-display');
-    const prevMonthBtn = document.getElementById('prev-month-btn');
-    const nextMonthBtn = document.getElementById('next-month-btn');
-    const incomeAmountEl = document.getElementById('income-amount');
-    const incomeCommentEl = document.getElementById('income-comment');
-    const addIncomeBtn = document.getElementById('add-income-btn');
-    const expenseCategoryPillsEl = document.getElementById('expense-category-pills');
-    const expenseAmountEl = document.getElementById('expense-amount');
-    const expenseCommentEl = document.getElementById('expense-comment');
-    const addExpenseBtn = document.getElementById('add-expense-btn');
-    const totalIncomeEl = document.getElementById('total-income');
-    const totalExpensesEl = document.getElementById('total-expenses');
-    const monthlySavingEl = document.getElementById('monthly-saving');
-    const finalBalanceEl = document.getElementById('final-balance');
-    const savingsProgress = document.getElementById('savings-progress');
-    const savingsProgressText = document.getElementById('savings-progress-text');
-    const incomeListEl = document.getElementById('income-list');
-    const expenseListEl = document.getElementById('expense-list');
-    const exportCsvBtn = document.getElementById('export-csv-btn');
-    const importCsvBtn = document.getElementById('import-csv-btn');
-    const csvFileInput = document.getElementById('csv-file-input');
-    const exportChartBtn = document.getElementById('export-chart-btn');
-    const expensesCtx = document.getElementById('expensesChart').getContext('2d');
-    const temporalCtx = document.getElementById('temporalExpensesChart').getContext('2d');
+  <!-- Modale Import OFX -->
+  <dialog id="dlg-import" class="rounded-2xl p-0 w-full max-w-5xl">
+    <form method="dialog" class="card p-0">
+      <div class="p-6 border-b">
+        <h3 class="text-xl font-semibold text-gray-800">Revue des opérations détectées</h3>
+        <p class="text-sm text-gray-500">Corrige les catégories si besoin. Les choix seront mémorisés pour les libellés identiques.</p>
+      </div>
+      <div class="p-6 max-h-[70vh] overflow-y-auto">
+        <table class="w-full text-sm">
+          <thead class="text-left text-gray-600">
+            <tr>
+              <th class="py-2">Date</th>
+              <th class="py-2">Libellé</th>
+              <th class="py-2">Montant</th>
+              <th class="py-2">Catégorie</th>
+              <th class="py-2">Commentaire</th>
+              <th class="py-2 w-32">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="import-rows"></tbody>
+        </table>
+      </div>
+      <div class="p-4 bg-gray-50 flex justify-end gap-2">
+        <button class="btn btn-secondary" value="cancel">Annuler</button>
+        <button id="btn-validate-import" class="btn btn-primary" value="default">Tout valider</button>
+      </div>
+    </form>
+  </dialog>
+</div>
 
-    const btnGoogle = document.getElementById('btn-google');
-    const btnAnon = document.getElementById('btn-anon');
-    const btnSignout = document.getElementById('btn-signout');
-    const authStatus = document.getElementById('auth-status');
-    const authWarning = document.getElementById('auth-warning');
+<!-- App JS + Firebase -->
+<script type="module">
+  // ---------- Firebase ----------
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInAnonymously, signOut } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+  import { getFirestore, doc, getDoc, setDoc, collection, getDocs } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
-    const dlgCategories = document.getElementById('dlg-categories');
-    const btnManageCategories = document.getElementById('btn-manage-categories');
-    const newCategoryInput = document.getElementById('new-category-input');
-    const btnAddCategory = document.getElementById('btn-add-category');
-    const categoryList = document.getElementById('category-list');
+  const firebaseConfig = {
+    apiKey: "AIzaSyD4f5nOJUv_DhFSuRsYxCIxsU8lEmHKb_U",
+    authDomain: "budget-app-71fa3.firebaseapp.com",
+    projectId: "budget-app-71fa3",
+    storageBucket: "budget-app-71fa3.firebasestorage.app",
+    messagingSenderId: "626176730343",
+    appId: "1:626176730343:web:233508ab9c71ff16596e42"
+  };
 
-    const ofxFileInput = document.getElementById('ofx-file-input');
-    const btnParseOfx = document.getElementById('btn-parse-ofx');
-    const dlgImport = document.getElementById('dlg-import');
-    const importRowsTbody = document.getElementById('import-rows');
-    const btnValidateImport = document.getElementById('btn-validate-import');
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
 
-    // ---------- Firebase init ----------
-    const app = initializeApp(firebaseConfig);
-    const auth = getAuth(app);
-    const db = getFirestore(app);
+  // ---------- State ----------
+  const SAVINGS_GOAL = 1400;
+  let currentMonth = new Date();
+  let appData = {}; // { 'YYYY-MM': { startingBalance, incomes[], expenses[] } }
+  let expensesChart, temporalCategoriesChart;
+  let selectedCategory = null;
+  let labelRules = {}; // { normalizedLabel: category }
 
-    onAuthStateChanged(auth, async (user) => {
-      window._user = user || null;
-      updateAuthUI();
-      if (user) {
-        await loadUserCategories();
-        await loadLabelRules();
-        await loadAllMonthsToMemory();
-      } else {
-        loadFromLocalStorage();
-      }
-      updateUI();
+  let userCategories = [
+    "Restaurant","Transports","Loyer","Santé","Loisirs & Sorties","Vêtements & Shopping",
+    "Dépenses Mariage","Dépenses Vacances","Autre","Restaurant (fast food)","Alimentation/Hygiène",
+    "Eglise","EDF Téléphone Internet RATP","Autre facture récurrente","À éclaircir","Exceptionelle",
+    "Amazon","Frais professionnels","salaires"
+  ];
+
+  // ---------- DOM ----------
+  const startingBalanceEl = document.getElementById('starting-balance');
+  const currentMonthDisplay = document.getElementById('current-month-display');
+  const prevMonthBtn = document.getElementById('prev-month-btn');
+  const nextMonthBtn = document.getElementById('next-month-btn');
+  const btnDeleteMonth = document.getElementById('btn-delete-month');
+
+  const incomeAmountEl = document.getElementById('income-amount');
+  const incomeCommentEl = document.getElementById('income-comment');
+  const incomeDateEl = document.getElementById('income-date');
+  const addIncomeBtn = document.getElementById('add-income-btn');
+
+  const expenseCategoryPillsEl = document.getElementById('expense-category-pills');
+  const expenseAmountEl = document.getElementById('expense-amount');
+  const expenseCommentEl = document.getElementById('expense-comment');
+  const expenseDateEl = document.getElementById('expense-date');
+  const addExpenseBtn = document.getElementById('add-expense-btn');
+
+  const totalIncomeEl = document.getElementById('total-income');
+  const totalExpensesEl = document.getElementById('total-expenses');
+  const monthlySavingEl = document.getElementById('monthly-saving');
+  const finalBalanceEl = document.getElementById('final-balance');
+
+  const incomeListEl = document.getElementById('income-list');
+  const expenseListEl = document.getElementById('expense-list');
+
+  const btnManageCategories = document.getElementById('btn-manage-categories');
+  const dlgCategories = document.getElementById('dlg-categories');
+  const newCategoryInput = document.getElementById('new-category-input');
+  const btnAddCategory = document.getElementById('btn-add-category');
+  const categoryList = document.getElementById('category-list');
+
+  const btnSummary = document.getElementById('btn-summary-view');
+  const btnDetail = document.getElementById('btn-detail-view');
+  const expensesSummaryView = document.getElementById('expenses-summary-view');
+  const expensesDetailView = document.getElementById('expenses-detail-view');
+  const expenseDetailList = document.getElementById('expense-detail-list');
+
+  const categoryFiltersEl = document.getElementById('category-filters');
+  const temporalCategoriesCtx = document.getElementById('temporalCategoriesChart').getContext('2d');
+
+  const expensesCtx = document.getElementById('expensesChart').getContext('2d');
+  const exportChartBtn = document.getElementById('export-chart-btn');
+
+  const ofxFileInput = document.getElementById('ofx-file-input');
+  const btnParseOfx = document.getElementById('btn-parse-ofx');
+  const dlgImport = document.getElementById('dlg-import');
+  const importRowsTbody = document.getElementById('import-rows');
+  const btnValidateImport = document.getElementById('btn-validate-import');
+
+  const btnGoogle = document.getElementById('btn-google');
+  const btnAnon = document.getElementById('btn-anon');
+  const btnSignout = document.getElementById('btn-signout');
+  const authStatus = document.getElementById('auth-status');
+  const authWarning = document.getElementById('auth-warning');
+
+  // ---------- Auth ----------
+  btnGoogle.onclick = async () => { const provider = new GoogleAuthProvider(); await signInWithPopup(auth, provider); };
+  btnAnon.onclick = async () => { await signInAnonymously(auth); };
+  btnSignout.onclick = async () => { await signOut(auth); };
+
+  onAuthStateChanged(auth, async (user) => {
+    window._user = user || null;
+    updateAuthUI();
+    if (user) {
+      await loadUserCategories();
+      await loadLabelRules();
+      await loadAllMonthsToMemory();
+    } else {
+      loadFromLocalStorage();
+    }
+    updateUI();
+  });
+
+  function updateAuthUI() {
+    if (window._user) {
+      authStatus.textContent = window._user.isAnonymous ? 'Connecté (anonyme)' : `Connecté : ${window._user.email}`;
+      btnSignout.classList.remove('hidden'); btnGoogle.classList.add('hidden'); btnAnon.classList.add('hidden'); authWarning.classList.add('hidden');
+    } else {
+      authStatus.textContent = 'Non connecté'; btnSignout.classList.add('hidden'); btnGoogle.classList.remove('hidden'); btnAnon.classList.remove('hidden'); authWarning.classList.remove('hidden');
+    }
+  }
+
+  // ---------- Persistence ----------
+  const getMonthKey = (date) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`;
+  function ensureMonth(mk){ if (!appData[mk]) appData[mk] = { startingBalance: 0, incomes: [], expenses: [] }; }
+
+  function loadFromLocalStorage() {
+    const saved = localStorage.getItem('budgetAppData'); appData = saved ? JSON.parse(saved) : {};
+    const cats = localStorage.getItem('budgetCategories'); if (cats) userCategories = JSON.parse(cats);
+    const rules = localStorage.getItem('budgetLabelRules'); labelRules = rules ? JSON.parse(rules) : {};
+  }
+  function saveToLocalStorage() {
+    localStorage.setItem('budgetAppData', JSON.stringify(appData));
+    localStorage.setItem('budgetCategories', JSON.stringify(userCategories));
+    localStorage.setItem('budgetLabelRules', JSON.stringify(labelRules));
+  }
+
+  async function loadAllMonthsToMemory() {
+    if (!window._user) return;
+    appData = {};
+    const monthsCol = collection(db, 'users', window._user.uid, 'months');
+    const snap = await getDocs(monthsCol);
+    snap.forEach(d => { appData[d.id] = d.data(); });
+    ensureMonth(getMonthKey(currentMonth));
+  }
+
+  async function saveMonthToFirestore(monthKey) {
+    if (!window._user) { saveToLocalStorage(); return; }
+    const ref = doc(db, 'users', window._user.uid, 'months', monthKey);
+    await setDoc(ref, appData[monthKey] || { startingBalance:0, incomes:[], expenses:[] }, { merge: true });
+  }
+
+  async function loadUserCategories() {
+    if (!window._user) return;
+    const ref = doc(db, 'users', window._user.uid);
+    const snap = await getDoc(ref);
+    if (snap.exists()) {
+      const data = snap.data(); if (Array.isArray(data.categories)) userCategories = data.categories;
+    } else { await setDoc(ref, { categories: userCategories }, { merge: true }); }
+  }
+  async function saveUserCategories() {
+    if (!window._user) { saveToLocalStorage(); return; }
+    const ref = doc(db, 'users', window._user.uid);
+    await setDoc(ref, { categories: userCategories }, { merge: true });
+  }
+
+  async function loadLabelRules(){ if (!window._user) return; const ref = doc(db, 'users', window._user.uid); const snap = await getDoc(ref); if (snap.exists() && snap.data().labelRules) { labelRules = snap.data().labelRules; } }
+  async function saveLabelRules(){ if (!window._user) { saveToLocalStorage(); return; } const ref = doc(db, 'users', window._user.uid); await setDoc(ref, { labelRules }, { merge: true }); }
+
+  // ---------- Categories UI ----------
+  function renderCategoryPills() {
+    expenseCategoryPillsEl.innerHTML = '';
+    userCategories.forEach(cat => {
+      const pill = document.createElement('button');
+      pill.className = 'category-pill';
+      pill.textContent = cat;
+      pill.addEventListener('click', () => {
+        document.querySelectorAll('.category-pill').forEach(p => p.classList.remove('selected'));
+        pill.classList.add('selected'); selectedCategory = cat;
+      });
+      expenseCategoryPillsEl.appendChild(pill);
     });
-
-    btnGoogle.onclick = async () => { const provider = new GoogleAuthProvider(); await signInWithPopup(auth, provider); };
-    btnAnon.onclick = async () => { await signInAnonymously(auth); };
-    btnSignout.onclick = async () => { await signOut(auth); };
-
-    function updateAuthUI() {
-      if (window._user) {
-        authStatus.textContent = window._user.isAnonymous ? 'Connecté (anonyme)' : `Connecté : ${window._user.email}`;
-        btnSignout.classList.remove('hidden');
-        btnGoogle.classList.add('hidden');
-        btnAnon.classList.add('hidden');
-        authWarning.classList.add('hidden');
-      } else {
-        authStatus.textContent = 'Non connecté';
-        btnSignout.classList.add('hidden');
-        btnGoogle.classList.remove('hidden');
-        btnAnon.classList.remove('hidden');
-        authWarning.classList.remove('hidden');
-      }
-    }
-
-    // ---------- Persistence helpers ----------
-    const getMonthKey = (date) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`;
-
-    function loadFromLocalStorage() {
-      const saved = localStorage.getItem('budgetAppData');
-      appData = saved ? JSON.parse(saved) : {};
-      const cats = localStorage.getItem('budgetCategories'); if (cats) userCategories = JSON.parse(cats);
-      const rules = localStorage.getItem('budgetLabelRules'); labelRules = rules ? JSON.parse(rules) : {};
-    }
-    function saveToLocalStorage() {
-      localStorage.setItem('budgetAppData', JSON.stringify(appData));
-      localStorage.setItem('budgetCategories', JSON.stringify(userCategories));
-      localStorage.setItem('budgetLabelRules', JSON.stringify(labelRules));
-    }
-
-    async function loadAllMonthsToMemory() {
-      if (!window._user) return;
-      appData = {};
-      const monthsCol = collection(db, 'users', window._user.uid, 'months');
-      const snap = await getDocs(monthsCol);
-      snap.forEach(d => { appData[d.id] = d.data(); });
-      const mk = getMonthKey(currentMonth);
-      if (!appData[mk]) appData[mk] = { startingBalance: 0, incomes: [], expenses: [] };
-    }
-
-    async function saveMonthToFirestore(monthKey) {
-      if (!window._user) { saveToLocalStorage(); return; }
-      const ref = doc(db, 'users', window._user.uid, 'months', monthKey);
-      await setDoc(ref, appData[monthKey] || { startingBalance:0, incomes:[], expenses:[] }, { merge: true });
-    }
-
-    async function loadUserCategories() {
-      if (!window._user) return;
-      const ref = doc(db, 'users', window._user.uid);
-      const snap = await getDoc(ref);
-      if (snap.exists()) {
-        const data = snap.data();
-        if (Array.isArray(data.categories)) userCategories = data.categories;
-      } else {
-        await setDoc(ref, { categories: userCategories }, { merge: true });
-      }
-    }
-    async function saveUserCategories() {
-      if (!window._user) { saveToLocalStorage(); return; }
-      const ref = doc(db, 'users', window._user.uid);
-      await setDoc(ref, { categories: userCategories }, { merge: true });
-    }
-
-    async function loadLabelRules(){
-      if (!window._user) return;
-      const ref = doc(db, 'users', window._user.uid);
-      const snap = await getDoc(ref);
-      if (snap.exists() && snap.data().labelRules) { labelRules = snap.data().labelRules; }
-    }
-    async function saveLabelRules(){
-      if (!window._user) { saveToLocalStorage(); return; }
-      const ref = doc(db, 'users', window._user.uid);
-      await setDoc(ref, { labelRules }, { merge: true });
-    }
-
-    // ---------- UI ----------
-    function renderCategoryPills() {
-      expenseCategoryPillsEl.innerHTML = '';
-      userCategories.forEach(cat => {
-        const pill = document.createElement('button');
-        pill.className = 'category-pill';
-        pill.textContent = cat;
-        pill.dataset.category = cat;
-        pill.addEventListener('click', () => {
-          document.querySelectorAll('.category-pill').forEach(p => p.classList.remove('selected'));
-          pill.classList.add('selected');
-          selectedCategory = cat;
-        });
-        expenseCategoryPillsEl.appendChild(pill);
-      });
-    }
-
-    function renderCategoryManager() {
-      categoryList.innerHTML = '';
-      userCategories.forEach((cat, idx) => {
-        const row = document.createElement('div');
-        row.className = 'flex items-center justify-between py-2';
-        row.innerHTML = `
-          <input class="flex-1 mr-3 border rounded px-3 py-2" value="${cat.replace(/\"/g, '&quot;')}" />
-          <button class="btn btn-secondary mr-2" data-action="up" data-idx="${idx}">↑</button>
-          <button class="btn btn-secondary mr-2" data-action="down" data-idx="${idx}">↓</button>
-          <button class="btn btn-secondary" data-action="del" data-idx="${idx}">Supprimer</button>`;
-        categoryList.appendChild(row);
-      });
-    }
-
-    btnManageCategories.onclick = () => { renderCategoryManager(); dlgCategories.showModal(); };
-    btnAddCategory.onclick = async () => {
-      const v = (newCategoryInput.value||'').trim();
-      if (!v) return;
-      if (!userCategories.includes(v)) userCategories.push(v);
-      newCategoryInput.value = '';
-      await saveUserCategories();
-      renderCategoryPills();
-      renderCategoryManager();
-    };
-    categoryList.addEventListener('click', async (e) => {
-      const btn = e.target.closest('button'); if (!btn) return;
-      const idx = parseInt(btn.dataset.idx, 10);
-      const action = btn.dataset.action;
-      if (action === 'del') userCategories.splice(idx,1);
-      if (action === 'up' && idx>0) [userCategories[idx-1], userCategories[idx]] = [userCategories[idx], userCategories[idx-1]];
-      if (action === 'down' && idx<userCategories.length-1) [userCategories[idx+1], userCategories[idx]] = [userCategories[idx], userCategories[idx+1]];
-      await saveUserCategories();
-      renderCategoryPills();
-      renderCategoryManager();
+  }
+  function renderCategoryManager() {
+    categoryList.innerHTML = '';
+    userCategories.forEach((cat, idx) => {
+      const row = document.createElement('div');
+      row.className = 'flex items-center justify-between py-2';
+      row.innerHTML = `
+        <input class="flex-1 mr-3 border rounded px-3 py-2" value="${cat.replace(/\"/g,'&quot;')}" />
+        <button class="btn btn-secondary mr-2" data-action="up" data-idx="${idx}">↑</button>
+        <button class="btn btn-secondary mr-2" data-action="down" data-idx="${idx}">↓</button>
+        <button class="btn btn-secondary" data-action="del" data-idx="${idx}">Supprimer</button>`;
+      categoryList.appendChild(row);
     });
+  }
+  btnManageCategories.onclick = () => { renderCategoryManager(); dlgCategories.showModal(); };
+  btnAddCategory.onclick = async () => {
+    const v = (newCategoryInput.value||'').trim(); if (!v) return;
+    if (!userCategories.includes(v)) userCategories.push(v);
+    newCategoryInput.value = ''; await saveUserCategories(); renderCategoryPills(); renderCategoryManager();
+  };
+  categoryList.addEventListener('click', async (e) => {
+    const btn = e.target.closest('button'); if (!btn) return; const idx = parseInt(btn.dataset.idx, 10); const action = btn.dataset.action;
+    if (action === 'del') userCategories.splice(idx,1);
+    if (action === 'up' && idx>0) [userCategories[idx-1], userCategories[idx]] = [userCategories[idx], userCategories[idx-1]];
+    if (action === 'down' && idx<userCategories.length-1) [userCategories[idx+1], userCategories[idx]] = [userCategories[idx], userCategories[idx+1]];
+    await saveUserCategories(); renderCategoryPills(); renderCategoryManager();
+  });
 
-    function updateUI() {
-      const monthKey = getMonthKey(currentMonth);
-      if (!appData[monthKey]) appData[monthKey] = { startingBalance: 0, incomes: [], expenses: [] };
-      const monthData = appData[monthKey];
+  // ---------- Calculs & rendu ----------
+  function updateUI() {
+    const mk = getMonthKey(currentMonth);
+    ensureMonth(mk);
+    const m = appData[mk];
 
-      currentMonthDisplay.textContent = currentMonth.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
-      startingBalanceEl.value = monthData.startingBalance || '';
+    currentMonthDisplay.textContent = currentMonth.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+    startingBalanceEl.value = m.startingBalance || '';
 
-      renderIncomeList(monthData.incomes);
-      renderExpenseList(monthData.expenses);
-      renderCategoryPills();
+    renderIncomeList(m.incomes);
+    renderExpenseList(m.expenses);
+    renderExpenseDetailTable(m.expenses);
+    renderCategoryPills();
+    renderCategoryFilters();
+    renderTemporalCategoriesChart();
 
-      const totalIncome = monthData.incomes.reduce((s,i)=>s+i.amount,0);
-      const totalExpenses = monthData.expenses.reduce((s,i)=>s+i.amount,0);
-      const monthlySaving = totalIncome - totalExpenses;
-      const finalBalance = (monthData.startingBalance||0) + monthlySaving;
+    const totalIncome = m.incomes.reduce((s,i)=>s+i.amount,0);
+    const totalExpenses = m.expenses.reduce((s,i)=>s+i.amount,0);
+    const monthlySaving = totalIncome - totalExpenses;
+    const finalBalance = (m.startingBalance||0) + monthlySaving;
 
-      totalIncomeEl.textContent = `${totalIncome.toFixed(2)} €`;
-      totalExpensesEl.textContent = `${totalExpenses.toFixed(2)} €`;
-      monthlySavingEl.textContent = `${monthlySaving.toFixed(2)} €`;
-      finalBalanceEl.textContent = `${finalBalance.toFixed(2)} €`;
-      monthlySavingEl.classList.toggle('text-red-800', monthlySaving < 0);
-      monthlySavingEl.classList.toggle('text-indigo-800', monthlySaving >= 0);
+    totalIncomeEl.textContent = `${totalIncome.toFixed(2)} €`;
+    totalExpensesEl.textContent = `${totalExpenses.toFixed(2)} €`;
+    monthlySavingEl.textContent = `${monthlySaving.toFixed(2)} €`;
+    finalBalanceEl.textContent = `${finalBalance.toFixed(2)} €`;
 
-      const progress = Math.max(0, (monthlySaving / SAVINGS_GOAL) * 100);
-      savingsProgress.style.width = `${Math.min(100, progress)}%`;
-      savingsProgressText.textContent = `${monthlySaving.toFixed(2)} € / ${SAVINGS_GOAL.toFixed(2)} €`;
+    renderPieChart(m.expenses);
 
-      renderPieChart(monthData.expenses);
-      renderTemporalChart(monthData.expenses);
+    if (window._user) { saveMonthToFirestore(mk); saveLabelRules(); }
+    else { saveToLocalStorage(); }
+  }
 
-      if (window._user) { saveMonthToFirestore(monthKey); saveLabelRules(); }
-      else { saveToLocalStorage(); }
-    }
+  function renderIncomeList(incomes){
+    incomeListEl.innerHTML = incomes.length===0
+      ? '<p class="text-gray-500">Aucun revenu ajouté.</p>'
+      : incomes.map(income=>`
+        <div class="flex justify-between items-center p-2 bg-gray-50 rounded">
+          <p class="font-medium text-gray-800">${income.comment ? income.comment.replace(/</g,'&lt;') : '<i>Aucun commentaire</i>'}</p>
+          <div class="flex items-center gap-4">
+            <span class="font-semibold text-green-600">${income.amount.toFixed(2)} €</span>
+            <button class="delete-btn text-gray-400 hover:text-red-500" data-id="${income.id}" data-type="income">&times;</button>
+          </div>
+        </div>`).join('');
+  }
 
-    function renderIncomeList(incomes){
-      incomeListEl.innerHTML = incomes.length===0
-        ? '<p class="text-gray-500">Aucun revenu ajouté.</p>'
-        : incomes.map(income=>`
-          <div class="flex justify-between items-center p-2 bg-gray-50 rounded">
-            <p class="font-medium text-gray-800">${income.comment ? income.comment.replace(/</g,'&lt;') : '<i>Aucun commentaire</i>'}</p>
-            <div class="flex items-center gap-4">
-              <span class="font-semibold text-green-600">${income.amount.toFixed(2)} €</span>
-              <button class="delete-btn text-gray-400 hover:text-red-500" data-id="${income.id}" data-type="income">&times;</button>
-            </div>
-          </div>`).join('');
-    }
+  function renderExpenseList(expenses){
+    if (expenses.length===0){ expenseListEl.innerHTML = '<p class="text-gray-500">Aucune dépense ajoutée.</p>'; return; }
+    const grouped = expenses.reduce((acc,e)=>{ (acc[e.category] ||= []).push(e); return acc; },{});
+    expenseListEl.innerHTML = Object.entries(grouped).map(([cat, items])=>{
+      const catTotal = items.reduce((s,i)=>s+i.amount,0);
+      const itemsHtml = items.map(exp=>`
+        <div class="flex justify-between items-center text-sm ml-4 py-1 border-t border-gray-100">
+          <span class="text-gray-600">${new Date(exp.id).toLocaleDateString('fr-FR')} — ${exp.comment ? exp.comment.replace(/</g,'&lt;') : '<i>Aucun commentaire</i>'}</span>
+          <div class="flex items-center gap-2">
+            <span class="text-gray-800">${exp.amount.toFixed(2)} €</span>
+            <button class="delete-btn text-gray-400 hover:text-red-500" data-id="${exp.id}" data-type="expense">&times;</button>
+          </div>
+        </div>`).join('');
+      return `<div class="mb-2">
+        <div class="flex justify-between items-center font-semibold mb-1"><span>${cat}</span><span>${catTotal.toFixed(2)} €</span></div>
+        ${itemsHtml}
+      </div>`;
+    }).join('');
+  }
 
-    function renderExpenseList(expenses){
-      if (expenses.length===0){ expenseListEl.innerHTML = '<p class="text-gray-500">Aucune dépense ajoutée.</p>'; return; }
-      const grouped = expenses.reduce((acc,e)=>{ (acc[e.category] ||= []).push(e); return acc; },{});
-      expenseListEl.innerHTML = Object.entries(grouped).map(([cat, items])=>{
-        const catTotal = items.reduce((s,i)=>s+i.amount,0);
-        const itemsHtml = items.map(exp=>`
-          <div class="flex justify-between items-center text-sm ml-4 py-1 border-t border-gray-100">
-            <span class="text-gray-600">${exp.comment ? exp.comment.replace(/</g,'&lt;') : '<i>Aucun commentaire</i>'}</span>
-            <div class="flex items-center gap-2">
-              <span class="text-gray-800">${exp.amount.toFixed(2)} €</span>
-              <button class="delete-btn text-gray-400 hover:text-red-500" data-id="${exp.id}" data-type="expense">&times;</button>
-            </div>
-          </div>`).join('');
-        return `<div class="mb-2">
-          <div class="flex justify-between items-center font-semibold mb-1"><span>${cat}</span><span>${catTotal.toFixed(2)} €</span></div>
-          ${itemsHtml}
-        </div>`;
-      }).join('');
-    }
+  function renderExpenseDetailTable(expenses){
+    if (!expenses.length){ expenseDetailList.innerHTML = '<tr><td class="py-2 text-gray-500" colspan="5">Aucune dépense.</td></tr>'; return; }
+    const rows = expenses.slice().sort((a,b)=>a.id-b.id);
+    expenseDetailList.innerHTML = rows.map(e=>{
+      const d = new Date(e.id);
+      const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
+      const iso = `${y}-${m}-${day}`;
+      return `<tr class="border-t" data-id="${e.id}">
+        <td class="py-2"><input type="date" class="date-input border rounded px-2 py-1 text-sm" value="${iso}"></td>
+        <td class="py-2"><input type="text" class="comment-input border rounded px-2 py-1 text-sm w-full" value="${(e.comment||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')}"></td>
+        <td class="py-2 whitespace-nowrap"><input type="number" step="0.01" class="amount-input border rounded px-2 py-1 text-sm w-28" value="${e.amount.toFixed(2)}"></td>
+        <td class="py-2"><select class="cat-input border rounded px-2 py-1 text-sm">${userCategories.map(c=>`<option ${c===e.category?'selected':''}>${c}</option>`).join('')}</select></td>
+        <td class="py-2"><button class="btn btn-secondary btn-save-row mr-2">Enregistrer</button><button class="btn btn-secondary btn-del-row">Supprimer</button></td>
+      </tr>`;
+    }).join('');
 
-    function renderPieChart(expenses){
-      const grouped = expenses.reduce((acc,e)=>{ acc[e.category]=(acc[e.category]||0)+e.amount; return acc; },{});
-      if (expensesChart) expensesChart.destroy();
-      const hasData = Object.keys(grouped).length>0;
-      expensesChart = new Chart(expensesCtx, {
-        type:'doughnut',
-        data:{ labels: hasData? Object.keys(grouped): ['Aucune dépense'],
-               datasets:[{ data: hasData? Object.values(grouped): [1], borderColor:'#fff', borderWidth:2 }]},
-        options:{ responsive:true, plugins:{ legend:{ display:hasData, position:'top' } },
-                  events: hasData? ['mousemove','mouseout','click','touchstart','touchmove']: [] }
-      });
-    }
+    // Save
+    expenseDetailList.querySelectorAll('.btn-save-row').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const tr = btn.closest('tr');
+        const idOld = +tr.dataset.id;
+        const mkOld = getMonthKey(new Date(idOld));
+        const idx = appData[mkOld].expenses.findIndex(x=>x.id===idOld);
+        if (idx<0) return;
 
-    function renderTemporalChart(expenses){
-      if (temporalExpensesChart) temporalExpensesChart.destroy();
-      if (expenses.length < 2) {
-        temporalExpensesChart = new Chart(temporalCtx, {
-          type:'line',
-          data:{ labels:['Début du mois'], datasets:[{ label:'Dépenses cumulées', data:[0] }]},
-          options:{ responsive:true, plugins:{ legend:{ display:false }, title:{ display:true, text:'Pas assez de données pour afficher une évolution', font:{ size:14 } } },
-                    scales:{ y:{ beginAtZero:true, ticks:{ callback:v=>`${v} €` } } } }
-        });
-        return;
-      }
-      const sorted = [...expenses].sort((a,b)=>a.id-b.id);
-      const labels = [], data = [];
-      let cum = 0;
-      sorted.forEach(e=>{ cum += e.amount; labels.push(new Date(e.id).toLocaleDateString('fr-FR',{ day:'numeric', month:'short'})); data.push(cum); });
-      temporalExpensesChart = new Chart(temporalCtx, {
-        type:'line',
-        data:{ labels, datasets:[{ label:'Dépenses cumulées', data, fill:true, tension:.4 }]},
-        options:{ responsive:true, plugins:{ legend:{ display:false } },
-                  scales:{ y:{ beginAtZero:true, ticks:{ callback:v=> v+' €' } } } }
-      });
-    }
+        const dateVal = tr.querySelector('.date-input').value;
+        const comment = tr.querySelector('.comment-input').value.trim();
+        const amount = parseFloat(tr.querySelector('.amount-input').value||'0')||0;
+        const category = tr.querySelector('.cat-input').value;
 
-    // ---------- Events ----------
-    prevMonthBtn.addEventListener('click', ()=>{ currentMonth.setMonth(currentMonth.getMonth()-1); updateUI(); });
-    nextMonthBtn.addEventListener('click', ()=>{ currentMonth.setMonth(currentMonth.getMonth()+1); updateUI(); });
-    startingBalanceEl.addEventListener('change', ()=>{ const mk=getMonthKey(currentMonth); appData[mk].startingBalance = parseFloat(startingBalanceEl.value)||0; updateUI(); });
+        const newDate = new Date(dateVal + 'T12:00:00');
+        const idNew = +newDate;
+        const mkNew = getMonthKey(newDate);
 
-    function addTransaction(type, payload){
-      const mk = payload?.monthKey || getMonthKey(currentMonth);
-      if (!appData[mk]) appData[mk] = { startingBalance: 0, incomes: [], expenses: [] };
-
-      if (type==='income') {
-        const amount = payload?.amount ?? parseFloat(incomeAmountEl.value);
-        const comment = payload?.comment ?? (incomeCommentEl.value||'').trim();
-        if (!amount || amount<=0) {
-          const el = incomeAmountEl; el.classList.add('border-red-500','ring-2','ring-red-200');
-          setTimeout(()=>el.classList.remove('border-red-500','ring-2','ring-red-200'),2000); return;
+        if (mkNew !== mkOld){
+          const tx = { id: idNew, amount, comment, category };
+          appData[mkOld].expenses.splice(idx,1);
+          ensureMonth(mkNew);
+          appData[mkNew].expenses.push(tx);
+          currentMonth = newDate;
+        } else {
+          appData[mkOld].expenses[idx] = { id: idNew, amount, comment, category };
         }
-        const tx = { id: payload?.id || Date.now(), amount, comment };
-        appData[mk].incomes.push(tx);
-        if (!payload) { incomeAmountEl.value=''; incomeCommentEl.value=''; }
-      } else {
-        const amount = payload?.amount ?? parseFloat(expenseAmountEl.value);
-        const comment = payload?.comment ?? (expenseCommentEl.value||'').trim();
-        const category = payload?.category ?? selectedCategory;
-        if (!amount || amount<=0 || !category){
-          const el = expenseAmountEl;
-          if(!amount||amount<=0){ el.classList.add('border-red-500','ring-2','ring-red-200'); setTimeout(()=>el.classList.remove('border-red-500','ring-2','ring-red-200'),2000); }
-          if (!category){ expenseCategoryPillsEl.classList.add('p-2','rounded-lg','ring-2','ring-red-500'); setTimeout(()=>expenseCategoryPillsEl.classList.remove('p-2','rounded-lg','ring-2','ring-red-500'),2000); }
+        updateUI();
+      });
+    });
+
+    // Delete
+    expenseDetailList.querySelectorAll('.btn-del-row').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const tr = btn.closest('tr');
+        const idOld = +tr.dataset.id;
+        const mkOld = getMonthKey(new Date(idOld));
+        appData[mkOld].expenses = appData[mkOld].expenses.filter(x=>x.id!==idOld);
+        updateUI();
+      });
+    });
+  }
+
+  function renderPieChart(expenses){
+    const grouped = expenses.reduce((acc,e)=>{ acc[e.category]=(acc[e.category]||0)+e.amount; return acc; },{});
+    if (expensesChart) expensesChart.destroy();
+    const hasData = Object.keys(grouped).length>0;
+    expensesChart = new Chart(expensesCtx, {
+      type:'doughnut',
+      data:{ labels: hasData? Object.keys(grouped): ['Aucune dépense'], datasets:[{ data: hasData? Object.values(grouped): [1], borderColor:'#fff', borderWidth:2 }]},
+      options:{ responsive:true, plugins:{ legend:{ display:hasData, position:'top' } }, events: hasData? ['mousemove','mouseout','click','touchstart','touchmove']: [] }
+    });
+  }
+
+  // -------- Courbe temporelle multi-catégories --------
+  function renderCategoryFilters(){
+    const present = new Set();
+    Object.values(appData).forEach(m=> (m.expenses||[]).forEach(e=> present.add(e.category)));
+    categoryFiltersEl.innerHTML = [...present].sort().map(c=>`
+      <label class="flex items-center gap-2">
+        <input type="checkbox" class="cat-filter" value="${c}" checked>
+        <span>${c}</span>
+      </label>`).join('');
+    categoryFiltersEl.querySelectorAll('.cat-filter').forEach(cb=> cb.addEventListener('change', renderTemporalCategoriesChart));
+  }
+  function renderTemporalCategoriesChart(){
+    const selected = [...document.querySelectorAll('.cat-filter:checked')].map(i=>i.value);
+    const monthly = {}; // { 'YYYY-MM': { cat: sum } }
+    Object.entries(appData).forEach(([mk, m])=>{
+      (m.expenses||[]).forEach(e=>{
+        monthly[mk] ||= {}; monthly[mk][e.category] = (monthly[mk][e.category]||0) + e.amount;
+      });
+    });
+    const months = Object.keys(monthly).sort();
+    const datasets = selected.map(cat => ({
+      label: cat,
+      data: months.map(mk => (monthly[mk]?.[cat]||0)),
+      tension:.3, fill:false
+    }));
+    if (temporalCategoriesChart) temporalCategoriesChart.destroy();
+    temporalCategoriesChart = new Chart(temporalCategoriesCtx, {
+      type:'line', data:{ labels: months, datasets },
+      options:{ responsive:true, plugins:{ legend:{ position:'top' } }, scales:{ y:{ beginAtZero:true, ticks:{ callback:v=> v+' €' } } } }
+    });
+  }
+
+  // ---------- Events ----------
+  prevMonthBtn.addEventListener('click', ()=>{ currentMonth.setMonth(currentMonth.getMonth()-1); updateUI(); });
+  nextMonthBtn.addEventListener('click', ()=>{ currentMonth.setMonth(currentMonth.getMonth()+1); updateUI(); });
+  startingBalanceEl.addEventListener('change', ()=>{ const mk=getMonthKey(currentMonth); ensureMonth(mk); appData[mk].startingBalance = parseFloat(startingBalanceEl.value)||0; updateUI(); });
+
+  btnDeleteMonth.addEventListener('click', ()=>{
+    const mk = getMonthKey(currentMonth);
+    if (!confirm(`Supprimer toutes les données de ${mk} ?`)) return;
+    appData[mk] = { startingBalance:0, incomes:[], expenses:[] };
+    updateUI();
+  });
+
+  function addTransaction(type, payload){
+    const mk = payload?.monthKey || getMonthKey(payload?.date || new Date());
+    ensureMonth(mk);
+
+    if (type==='income') {
+      const amount = payload?.amount ?? parseFloat(incomeAmountEl.value);
+      const comment = payload?.comment ?? (incomeCommentEl.value||'').trim();
+      const d = payload?.date || (incomeDateEl.value ? new Date(incomeDateEl.value+'T12:00:00') : new Date());
+      if (!amount || amount<=0) return;
+      const tx = { id: payload?.id || +d, amount, comment };
+      appData[mk].incomes.push(tx);
+      if (!payload) { incomeAmountEl.value=''; incomeCommentEl.value=''; incomeDateEl.value=''; }
+    } else {
+      const amount = payload?.amount ?? parseFloat(expenseAmountEl.value);
+      const comment = payload?.comment ?? (expenseCommentEl.value||'').trim();
+      const category = payload?.category ?? selectedCategory;
+      const d = payload?.date || (expenseDateEl.value ? new Date(expenseDateEl.value+'T12:00:00') : new Date());
+      if (!amount || amount<=0 || !category) return;
+      const tx = { id: payload?.id || +d, amount, comment, category };
+      appData[mk].expenses.push(tx);
+      if (!payload) {
+        document.querySelectorAll('.category-pill.selected').forEach(p=>p.classList.remove('selected')); selectedCategory=null;
+        expenseAmountEl.value=''; expenseCommentEl.value=''; expenseDateEl.value='';
+      }
+    }
+    currentMonth = payload?.date || new Date(); // pour rester sur le mois concerné
+    updateUI();
+  }
+
+  addIncomeBtn.addEventListener('click', ()=> addTransaction('income'));
+  addExpenseBtn.addEventListener('click', ()=> addTransaction('expense'));
+
+  document.body.addEventListener('click', (e)=>{
+    const btn = e.target.closest('.delete-btn'); if (!btn) return;
+    const { id, type } = btn.dataset;
+    const mk = getMonthKey(currentMonth);
+    const key = type==='income' ? 'incomes' : 'expenses';
+    appData[mk][key] = appData[mk][key].filter(i=> i.id !== parseInt(id));
+    updateUI();
+  });
+
+  exportChartBtn.addEventListener('click', ()=>{
+    const url = document.getElementById('expensesChart').toDataURL('image/png');
+    const a = document.createElement('a'); a.href = url; a.download = 'repartition_depenses.png'; a.click();
+  });
+
+  // ---------- CSV ----------
+  const exportCsvBtn = document.getElementById('export-csv-btn');
+  const importCsvBtn = document.getElementById('import-csv-btn');
+  const csvFileInput = document.getElementById('csv-file-input');
+
+  exportCsvBtn.addEventListener('click', ()=>{
+    const rows = [['month','type','amount','category','comment','id']];
+    Object.entries(appData).forEach(([mk, data])=>{
+      (data.incomes||[]).forEach(i=> rows.push([mk,'income',i.amount,'',i.comment||'', i.id]));
+      (data.expenses||[]).forEach(x=> rows.push([mk,'expense',x.amount,x.category||'',x.comment||'', x.id]));
+    });
+    const csv = rows.map(r=> r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'}); const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'budget_data.csv'; a.click(); URL.revokeObjectURL(url);
+  });
+
+  importCsvBtn.addEventListener('click', ()=> csvFileInput.click());
+  csvFileInput.addEventListener('change', async (e)=>{
+    const file = e.target.files?.[0]; if (!file) return; const text = await file.text();
+    const lines = text.split(/\r?\n/).filter(Boolean); const header = lines.shift();
+    const cols = header.split(',').map(s=> s.replace(/^\"|\"$/g,'').toLowerCase()); const idx = (name)=> cols.indexOf(name); const nextData = {};
+    for (const line of lines){
+      const parts = line.match(/\"(?:[^\"]|\"\")*\"|[^,]+/g)?.map(s=> s.replace(/^\"|\"$/g,'').replace(/\"\"/g,'"')) || [];
+      const mk = parts[idx('month')]; const type = parts[idx('type')];
+      const amount = parseFloat(parts[idx('amount')]||'0')||0;
+      const category = parts[idx('category')]||'';
+      const comment = parts[idx('comment')]||'';
+      const id = parseInt(parts[idx('id')]||Date.now());
+      if (!nextData[mk]) nextData[mk] = { startingBalance: 0, incomes: [], expenses: [] };
+      if (type==='income') nextData[mk].incomes.push({ id, amount, comment });
+      else if (type==='expense') nextData[mk].expenses.push({ id, amount, comment, category });
+    }
+    appData = nextData;
+    if (window._user){
+      await Promise.all(Object.keys(appData).map(mk=> setDoc(doc(db,'users',window._user.uid,'months',mk), appData[mk])));
+    } else { saveToLocalStorage(); }
+    csvFileInput.value = ''; updateUI(); alert('Import terminé.');
+  });
+
+  // ---------- OFX ----------
+  function escapeHtml(s){ return (s||'').replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c])); }
+  function escapeAttr(s){ return (s||'').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function normalizeLabel(s){ return (s||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9 ]/g,'').replace(/\s+/g,' ').trim(); }
+
+  function suggestCategory(tx){
+    const key = normalizeLabel(tx.label);
+    if (labelRules[key]) return labelRules[key];
+    const L = key;
+    if (/MONOPRIX/.test(L)) return 'Alimentation/Hygiène';
+    if (/AMAZON/.test(L)) return 'Amazon';
+    // bonus : salaire -> vue revenus
+    if (/SALAIRE|PAYROLL|PAYE|VIREMENT EMPLOYEUR/.test(L)) return 'Revenu';
+    const rules = [
+      ['Restaurant', /UBER\s*EATS|DELIVEROO|MC ?DONALD|KFC|BURGER KING|PIZZA|BOULANGERIE|RESTAURANT|BISTRO|CAFE/],
+      ['Transports', /SNCF|RATP|BILLET|UBER\b|BOLT\b|TOTAL|ESSO|AUTOROUTE|PEAGE|T\+|AIR FRANCE|RYANAIR|TRANSILIEN/],
+      ['EDF Téléphone Internet RATP', /ELECTRICITE|EDF|ENGIE|EAU|SFR|FREE|ORANGE|BOUYGUES|INTERNET|RATP/],
+      ['Autre facture récurrente', /ASSURANCE|AMAZON PRIME|IMPOT|TAXE/],
+      ['Loyer', /LOYER|LOCATION|BAIL/],
+      ['Santé', /PHARMACIE|MEDECIN|DOCTOLIB|DENTISTE|HOPITAL|LABO/],
+      ['Loisirs & Sorties', /FNAC|CULTURA|JEU|CINEMA|THEATRE|PARC|MUSEE/],
+      ['Vêtements & Shopping', /ZARA|H&M|DECATHLON|GO SPORT|NIKE|ADIDAS|GALERIES LAFAYETTE|PRINTEMPS/],
+      ['Dépenses Vacances', /HOTEL|BOOKING|AIRBNB|HOSTEL|CAMPING|VOYAGE/]
+    ];
+    for (const [cat, re] of rules){ if (re.test(L)) return cat; }
+    return 'Autre';
+  }
+
+  function parseOFX(text){
+    const blocks = [];
+    const xmlBlocks = text.match(/<STMTTRN>[\s\S]*?<\/STMTTRN>/gi);
+    if (xmlBlocks) blocks.push(...xmlBlocks);
+    else {
+      const rg = /<STMTTRN>([\s\S]*?)(?=<STMTTRN>|<\/BANKTRANLIST>|<\/CREDITCARDMSGSRSV1>|$)/gi;
+      let m; while ((m = rg.exec(text))) blocks.push(m[0]);
+    }
+    const out = [];
+    const first8 = (s)=> (s||'').replace(/[^0-9]/g,'').slice(0,8);
+    blocks.forEach(b=>{
+      const d = (b.match(/<DTPOSTED>([^<\n]+)/i)||[])[1] || '';
+      const a = (b.match(/<TRNAMT>([^<\n]+)/i)||[])[1] || '';
+      const name = (b.match(/<NAME>([^\n<]+)/i)||[])[1] || '';
+      const memo = (b.match(/<MEMO>([^\n<]+)/i)||[])[1] || '';
+      const ymd = first8(d); if (!ymd || !a) return;
+      const yyyy = +ymd.slice(0,4), mm = +ymd.slice(4,6)-1, dd = +ymd.slice(6,8);
+      const date = new Date(yyyy, mm, dd);
+      const amount = parseFloat(a.replace(',', '.')) || 0;
+      const label = (name || memo || '').trim();
+      out.push({ date, dateStr: date.toLocaleDateString('fr-FR'), label, amount });
+    });
+    return out;
+  }
+
+  btnSummary.addEventListener('click', ()=>{ expensesSummaryView.classList.remove('hidden'); expensesDetailView.classList.add('hidden'); });
+  btnDetail.addEventListener('click', ()=>{ expensesSummaryView.classList.add('hidden'); expensesDetailView.classList.remove('hidden'); });
+
+  btnParseOfx.addEventListener('click', async () => {
+    try {
+      const file = ofxFileInput.files?.[0];
+      if (!file) { alert('Choisis un fichier OFX.'); return; }
+      const text = await file.text();
+      const txs = parseOFX(text);
+      if (!txs.length) { alert('Aucune opération trouvée dans ce OFX.'); return; }
+
+      importRowsTbody.innerHTML = '';
+      txs.forEach((t, idx) => {
+        const cat = suggestCategory(t);
+        const tr = document.createElement('tr');
+        tr.className = 'border-t';
+        tr.innerHTML = `
+          <td class="py-2 whitespace-nowrap">${t.dateStr}</td>
+          <td class="py-2">${escapeHtml(t.label)}</td>
+          <td class="py-2 whitespace-nowrap">
+            <input type="number" step="0.01" class="border rounded px-2 py-1 text-sm w-32 amount-input" value="${t.amount.toFixed(2)}" />
+          </td>
+          <td class="py-2">
+            <select class="border rounded px-2 py-1 text-sm w-full">
+              ${['Revenu', ...userCategories].map(c => `<option ${c===cat?'selected':''}>${c}</option>`).join('')}
+            </select>
+          </td>
+          <td class="py-2">
+            <input type="text" class="border rounded px-2 py-1 text-sm w-full comment-input" value="${escapeAttr(t.label)}" />
+          </td>
+          <td class="py-2">
+            <div class="flex gap-2">
+              <button type="button" class="btn btn-secondary btn-del-row" title="Supprimer">✕</button>
+              <button type="button" class="btn btn-secondary btn-add-row" title="Ajouter une ligne similaire">+ Ajouter</button>
+            </div>
+          </td>`;
+        tr.dataset.idx = String(idx);
+        tr.dataset.manual = '0';
+        importRowsTbody.appendChild(tr);
+      });
+
+      importRowsTbody.addEventListener('click', (ev) => {
+        const tr = ev.target.closest('tr'); if (!tr) return;
+        if (ev.target.closest('.btn-del-row')) { tr.remove(); return; }
+        if (ev.target.closest('.btn-add-row')) {
+          const clone = tr.cloneNode(true);
+          clone.dataset.manual = '1';
+          clone.querySelector('.amount-input').value = '';
+          clone.querySelector('.comment-input').value = '';
+          importRowsTbody.insertBefore(clone, tr.nextSibling);
           return;
         }
-        const tx = { id: payload?.id || Date.now(), amount, comment, category };
-        appData[mk].expenses.push(tx);
-        if (!payload) {
-          document.querySelectorAll('.category-pill.selected').forEach(p=>p.classList.remove('selected'));
-          selectedCategory=null; expenseAmountEl.value=''; expenseCommentEl.value='';
-        }
-      }
-      updateUI();
-    }
-
-    addIncomeBtn.addEventListener('click', ()=> addTransaction('income'));
-    addExpenseBtn.addEventListener('click', ()=> addTransaction('expense'));
-    ;[incomeAmountEl,incomeCommentEl].forEach(el=>el.addEventListener('keydown',(e)=>{ if(e.key==='Enter') addTransaction('income'); }));
-    ;[expenseAmountEl,expenseCommentEl].forEach(el=>el.addEventListener('keydown',(e)=>{ if(e.key==='Enter') addTransaction('expense'); }));
-
-    document.body.addEventListener('click', (e)=>{
-      const btn = e.target.closest('.delete-btn'); if (!btn) return;
-      const { id, type } = btn.dataset;
-      const mk = getMonthKey(currentMonth);
-      const key = type==='income' ? 'incomes' : 'expenses';
-      appData[mk][key] = appData[mk][key].filter(i=> i.id !== parseInt(id));
-      updateUI();
-    });
-
-    // ---------- CSV Export/Import ----------
-    exportCsvBtn.addEventListener('click', ()=>{
-      const rows = [['month','type','amount','category','comment','id']];
-      Object.entries(appData).forEach(([mk, data])=>{
-        data.incomes.forEach(i=> rows.push([mk,'income',i.amount,'',i.comment||'', i.id]));
-        data.expenses.forEach(x=> rows.push([mk,'expense',x.amount,x.category||'',x.comment||'', x.id]));
       });
-      const csv = rows.map(r=> r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(',')).join('\n');
-      const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = 'budget_data.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-    });
 
-    importCsvBtn.addEventListener('click', ()=> csvFileInput.click());
-    csvFileInput.addEventListener('change', async (e)=>{
-      const file = e.target.files?.[0]; if (!file) return;
-      const text = await file.text();
-      const lines = text.split(/\r?\n/).filter(Boolean);
-      const header = lines.shift();
-      const cols = header.split(',').map(s=> s.replace(/^\"|\"$/g,'').toLowerCase());
-      const idx = (name)=> cols.indexOf(name);
-      const nextData = {};
-      for (const line of lines){
-        const parts = line.match(/\"(?:[^\"]|\"\")*\"|[^,]+/g)?.map(s=> s.replace(/^\"|\"$/g,'').replace(/\"\"/g,'"')) || [];
-        const mk = parts[idx('month')];
-        const type = parts[idx('type')];
-        const amount = parseFloat(parts[idx('amount')]||'0')||0;
-        const category = parts[idx('category')]||'';
-        const comment = parts[idx('comment')]||'';
-        const id = parseInt(parts[idx('id')]||Date.now());
-        if (!nextData[mk]) nextData[mk] = { startingBalance: 0, incomes: [], expenses: [] };
-        if (type==='income') nextData[mk].incomes.push({ id, amount, comment });
-        else if (type==='expense') nextData[mk].expenses.push({ id, amount, comment, category });
-      }
-      appData = nextData;
-      if (window._user){
-        await Promise.all(Object.keys(appData).map(mk=> setDoc(doc(db,'users',window._user.uid,'months',mk), appData[mk])));
-      } else {
-        saveToLocalStorage();
-      }
-      csvFileInput.value = '';
-      updateUI();
-      alert('Import terminé.');
-    });
+      dlgImport.showModal();
 
-    exportChartBtn.addEventListener('click', ()=>{
-      const url = document.getElementById('expensesChart').toDataURL('image/png');
-      const a = document.createElement('a'); a.href = url; a.download = 'repartition_depenses.png'; a.click();
-    });
+      btnValidateImport.onclick = (e) => {
+        e.preventDefault();
+        const rows = [...importRowsTbody.querySelectorAll('tr')];
 
-    // ---------- OFX IMPORT ----------
-    btnParseOfx.addEventListener('click', async () => {
-      try {
-        const file = ofxFileInput.files?.[0];
-        if (!file) { alert('Choisis un fichier OFX.'); return; }
-        const text = await file.text();
-        const txs = parseOFX(text);
-        if (!txs.length) { alert('Aucune opération trouvée dans ce OFX.'); return; }
+        rows.forEach(row => {
+          const i = parseInt(row.dataset.idx || '-1', 10);
+          const baseTx = (i>=0 && txs[i]) ? txs[i] : null;
 
-        // Table de revue
-        importRowsTbody.innerHTML = '';
-        txs.forEach((t, idx) => {
-          const cat = suggestCategory(t);
-          const tr = document.createElement('tr');
-          tr.className = 'border-t';
-          tr.innerHTML = `
-            <td class="py-2 whitespace-nowrap">${t.dateStr}</td>
-            <td class="py-2">${escapeHtml(t.label)}</td>
-            <td class="py-2 whitespace-nowrap">
-              <input type="number" step="0.01" class="border rounded px-2 py-1 text-sm w-32 amount-input" value="${t.amount.toFixed(2)}" />
-            </td>
-            <td class="py-2">
-              <select class="border rounded px-2 py-1 text-sm w-full">
-                ${userCategories.map(c => `<option ${c===cat?'selected':''}>${c}</option>`).join('')}
-              </select>
-            </td>
-            <td class="py-2">
-              <input type="text" class="border rounded px-2 py-1 text-sm w-full comment-input" placeholder="Commentaire" />
-            </td>
-            <td class="py-2">
-              <div class="flex gap-2">
-                <button type="button" class="btn btn-secondary btn-del-row" title="Supprimer">✕</button>
-                <button type="button" class="btn btn-secondary btn-add-row" title="Ajouter une ligne similaire">+ Ajouter</button>
-              </div>
-            </td>`;
-          tr.dataset.idx = String(idx);
-          tr.dataset.manual = '0';
-          importRowsTbody.appendChild(tr);
+          const amountInput = row.querySelector('.amount-input');
+          const sel = row.querySelector('select');
+          const commentInput = row.querySelector('.comment-input');
+
+          const amountVal = parseFloat((amountInput?.value || '').replace(',', '.'));
+          if (isNaN(amountVal)) return;
+
+          const chosenCat = sel ? sel.value : 'Autre';
+          const comment = (commentInput?.value || '').trim(); // par défaut = libellé OFX
+          const when = baseTx ? baseTx.date : new Date();
+          const mk = getMonthKey(when);
+          const id = +when;
+
+          // règle mémorisée pour dépenses uniquement
+          if (baseTx && chosenCat !== 'Revenu') {
+            const key = normalizeLabel(baseTx.label);
+            if (key && !labelRules[key]) labelRules[key] = chosenCat;
+          }
+
+          if (chosenCat === 'Revenu' || amountVal > 0) {
+            addTransaction('income', { id, amount: Math.abs(amountVal), comment, date: when, monthKey: mk });
+          } else {
+            addTransaction('expense', { id, amount: Math.abs(amountVal), comment, category: chosenCat, date: when, monthKey: mk });
+          }
         });
 
-        // Actions (supprimer / dupliquer)
-        importRowsTbody.addEventListener('click', (ev) => {
-          const tr = ev.target.closest('tr'); if (!tr) return;
-          if (ev.target.closest('.btn-del-row')) { tr.remove(); return; }
-          if (ev.target.closest('.btn-add-row')) {
-            const clone = tr.cloneNode(true);
-            clone.dataset.manual = '1';
-            const amt = clone.querySelector('.amount-input'); if (amt) amt.value='';
-            const com = clone.querySelector('.comment-input'); if (com) com.value='';
-            importRowsTbody.insertBefore(clone, tr.nextSibling);
-            return;
-          }
-        }, { once: true });
+        dlgImport.close();
+      };
 
-        dlgImport.showModal();
-
-        // Validation : commentaire = uniquement ce que tu saisis (jamais le libellé)
-        btnValidateImport.onclick = (e) => {
-          e.preventDefault();
-          const rows = [...importRowsTbody.querySelectorAll('tr')];
-          rows.forEach(row => {
-            const i = parseInt(row.dataset.idx || '-1', 10);
-            const baseTx = (i>=0 && txs[i]) ? txs[i] : null;
-
-            const amountInput = row.querySelector('.amount-input');
-            const sel = row.querySelector('select');
-            const commentInput = row.querySelector('.comment-input');
-
-            const amountVal = parseFloat((amountInput?.value || '').replace(',', '.'));
-            if (isNaN(amountVal)) return;
-
-            const chosenCat = sel ? sel.value : 'Autre';
-            const comment = (commentInput?.value || '').trim(); // ⚠️ pas de libellé par défaut
-
-            const when = baseTx ? baseTx.date : new Date();
-            const mk = getMonthKey(when);
-            const id = +when;
-
-            // Règle auto uniquement pour les lignes issues du parsing OFX
-            if (baseTx) {
-              const key = normalizeLabel(baseTx.label);
-              if (key && !labelRules[key]) labelRules[key] = chosenCat;
-            }
-
-            if (amountVal < 0) {
-              addTransaction('expense', {
-                id,
-                amount: Math.abs(amountVal),
-                comment,
-                category: chosenCat,
-                monthKey: mk
-              });
-            } else {
-              addTransaction('income', {
-                id,
-                amount: amountVal,
-                comment,
-                monthKey: mk
-              });
-            }
-          });
-          dlgImport.close();
-        };
-
-      } catch (e) {
-        console.error('[OFX] erreur:', e);
-        alert('Erreur OFX: ' + (e?.message || e));
-      }
-    });
-
-    // ---------- Utils ----------
-    function escapeHtml(s){ return (s||'').replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c])); }
-
-    function parseOFX(text){
-      // Supporte OFX XML (<STMTTRN>...</STMTTRN>) et SGML (tags sans </TAG>)
-      const blocks = [];
-      const xmlBlocks = text.match(/<STMTTRN>[\s\S]*?<\/STMTTRN>/gi);
-      if (xmlBlocks) {
-        blocks.push(...xmlBlocks);
-      } else {
-        const rg = /<STMTTRN>([\s\\S]*?)(?=<STMTTRN>|<\/BANKTRANLIST>|<\/CREDITCARDMSGSRSV1>|$)/gi;
-        let m; while ((m = rg.exec(text))) blocks.push(m[0]);
-      }
-
-      const out = [];
-      const first8 = (s)=> (s||'').replace(/[^0-9]/g,'').slice(0,8);
-
-      blocks.forEach(b=>{
-        const d = (b.match(/<DTPOSTED>([^<\n]+)/i)||[])[1] || '';
-        const a = (b.match(/<TRNAMT>([^<\n]+)/i)||[])[1] || '';
-        const name = (b.match(/<NAME>([^\n<]+)/i)||[])[1] || '';
-        const memo = (b.match(/<MEMO>([^\n<]+)/i)||[])[1] || '';
-        const ymd = first8(d);
-        if (!ymd || !a) return;
-
-        const yyyy = +ymd.slice(0,4), mm = +ymd.slice(4,6)-1, dd = +ymd.slice(6,8);
-        const date = new Date(yyyy, mm, dd);
-        const amount = parseFloat(a.replace(',', '.')) || 0;
-        const label = (name || memo || '').trim();
-
-        out.push({ date, dateStr: date.toLocaleDateString('fr-FR'), label, amount });
-      });
-
-      return out;
+    } catch (e) {
+      console.error('[OFX] erreur:', e);
+      alert('Erreur OFX: ' + (e?.message || e));
     }
+  });
 
-    function normalizeLabel(s){
-      return (s||'').toUpperCase()
-        .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
-        .replace(/[^A-Z0-9 ]/g,'')
-        .replace(/\s+/g,' ')
-        .trim();
-    }
+    // ---------- Start ----------
+    if (!window.renderCategoryFilters) {
+    window.renderCategoryFilters = function(){
+      // ... le même corps qu’avant ...
+    };
+  }
 
-    function suggestCategory(tx){
-      const key = normalizeLabel(tx.label);
-      if (labelRules[key]) return labelRules[key];
-      const L = key;
-      const kws = [
-        ['Alimentation (courses)', /CARREFOUR|INTERMARCHE|LIDL|ALDI|AUCHAN|MONOPRIX|LECLERC|PICARD/],
-        ['Restaurant', /UBER\s*EATS|DELIVEROO|MC ?DONALD|KFC|BURGER KING|PIZZA|BOULANGERIE|RESTAURANT|BISTRO|CAFE/],
-        ['Transports', /SNCF|RATP|BILLET|UBER\b|BOLT\b|TOTAL|ESSO|AUTOROUTE|PEAGE|T\+|AIR FRANCE|RYANAIR|TRANSILIEN/],
-        ['Factures récurrentes', /ELECTRICITE|EDF|ENGIE|EAU|SFR|FREE|ORANGE|BOUYGUES|INTERNET|ASSURANCE|AMAZON PRIME/],
-        ['Abonnements', /SPOTIFY|NETFLIX|YOUTUBE|APPLE MUSIC|GOOGLE|MICROSOFT|ADOBE|SUBSCRIPTION|ABONNEMENT/],
-        ['Loyer', /LOYER|LOCATION|BAIL|GARANTIE LOCATIVE/],
-        ['Santé', /PHARMACIE|MEDECIN|DOCTOLIB|DENTISTE|HOPITAL|LABO/],
-        ['Loisirs & Sorties', /FNAC|CULTURA|JEU|CINEMA|THEATRE|PARC|MUSEE/],
-        ['Vêtements & Shopping', /ZARA|H&M|DECATHLON|GO SPORT|NIKE|ADIDAS|GALERIES LAFAYETTE|PRINTEMPS/],
-        ['Dépenses Vacances', /HOTEL|BOOKING|AIRBNB|HOSTEL|CAMPING|VOYAGE/]
-      ];
-      for (const [cat, re] of kws){ if (re.test(L)) return cat; }
-      return 'Autre';
-    }
-
-    // ---------- Init ----------
-    loadFromLocalStorage();
-    updateUI();
-  </script>
+  loadFromLocalStorage(); ensureMonth(getMonthKey(currentMonth)); updateUI();
+</script>
 </body>
 </html>
-
